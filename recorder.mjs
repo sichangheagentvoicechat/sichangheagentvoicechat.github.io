@@ -1,0 +1,110 @@
+/**
+ * Microphone capture cut into independent 16 kHz mono WAV clips at pauses in speech (or at `MAX_CLIP_S`).
+ * Raw PCM through an AudioWorklet avoids MediaRecorder, whose chunks are not independently decodable and which is flaky on iOS.
+ * Clips without speech are dropped.
+ */
+const TARGET_HZ = 16000;
+const MAX_CLIP_S = 10;
+const PAUSE_MS = 700;
+const MIN_SPEECH_MS = 250;
+const PREROLL_MS = 300;
+const MIN_LEVEL = 0.012;
+
+const WORKLET = `registerProcessor('cap', class extends AudioWorkletProcessor {
+  constructor() { super(); this.buf = new Float32Array(2048); this.n = 0; }
+  process(inputs) {
+    const ch = inputs[0][0];
+    if (!ch) return true;
+    for (let i = 0; i < ch.length; i++) { this.buf[this.n++] = ch[i]; if (this.n === this.buf.length) { this.port.postMessage(this.buf.slice()); this.n = 0; } }
+    return true;
+  }
+});`;
+
+function resampleToWav(frames, fromHz) {
+  const total = frames.reduce((n, f) => n + f.length, 0);
+  const flat = new Float32Array(total);
+  let at = 0;
+  for (const f of frames) { flat.set(f, at); at += f.length; }
+  const outLen = Math.floor(total * TARGET_HZ / fromHz);
+  const view = new DataView(new ArrayBuffer(44 + outLen * 2));
+  const ascii = (o, s) => { for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)); };
+  ascii(0, 'RIFF'); view.setUint32(4, 36 + outLen * 2, true); ascii(8, 'WAVEfmt '); view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); view.setUint16(22, 1, true); view.setUint32(24, TARGET_HZ, true); view.setUint32(28, TARGET_HZ * 2, true);
+  view.setUint16(32, 2, true); view.setUint16(34, 16, true); ascii(36, 'data'); view.setUint32(40, outLen * 2, true);
+  const ratio = fromHz / TARGET_HZ;
+  for (let i = 0; i < outLen; i++) {
+    const from = Math.floor(i * ratio), to = Math.min(total, Math.max(from + 1, Math.floor((i + 1) * ratio)));
+    let sum = 0;
+    for (let j = from; j < to; j++) sum += flat[j];
+    const sample = Math.max(-1, Math.min(1, sum / (to - from)));
+    view.setInt16(44 + i * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+  }
+  return new Blob([view], {type: 'audio/wav'});
+}
+
+/** `start()` resolves to `{ok: true}` or `{ok: false, error}`. `onClip(blob, {ms})` per clip, `onLevel(0..1)` ~23 times a second. */
+export function createRecorder({log, onClip, onLevel}) {
+  let ctx = null, stream = null, node = null, sourceNode = null;
+  let frames = [], preroll = [], speechMs = 0, silentMs = 0, clipMs = 0, noise = 0.004, clipsOut = 0;
+
+  function cut(final) {
+    if (speechMs >= MIN_SPEECH_MS) {
+      const blob = resampleToWav(frames, ctx.sampleRate);
+      clipsOut++;
+      log('mic', `clip ${clipsOut}: ${Math.round(clipMs)}ms audio, ${Math.round(speechMs)}ms speech, ${blob.size}B${final ? ' (final)' : ''}`);
+      onClip(blob, {ms: clipMs});
+    }
+    frames = []; speechMs = 0; silentMs = 0; clipMs = 0;
+  }
+
+  function onFrame(frame) {
+    const ms = frame.length / ctx.sampleRate * 1000;
+    let sum = 0;
+    for (let i = 0; i < frame.length; i++) sum += frame[i] * frame[i];
+    const level = Math.sqrt(sum / frame.length);
+    const speaking = level > Math.max(MIN_LEVEL, noise * 3);
+    if (!speaking) noise = noise * 0.98 + level * 0.02;
+    onLevel?.(Math.min(1, level * 8));
+    if (!frames.length && !speaking) { preroll.push(frame); while (preroll.length * ms > PREROLL_MS) preroll.shift(); return; }
+    if (!frames.length) { frames = preroll; preroll = []; clipMs = frames.length * ms; }
+    frames.push(frame); clipMs += ms;
+    if (speaking) { speechMs += ms; silentMs = 0; } else silentMs += ms;
+    if (silentMs >= PAUSE_MS || clipMs >= MAX_CLIP_S * 1000) cut(false);
+  }
+
+  return {
+    async start() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({audio: {echoCancellation: true, noiseSuppression: true, autoGainControl: true}});
+        try { navigator.audioSession.type = 'play-and-record'; } catch { /* unsupported */ }
+        ctx = new (window.AudioContext || window.webkitAudioContext)();
+        await ctx.resume();
+        const url = URL.createObjectURL(new Blob([WORKLET], {type: 'text/javascript'}));
+        await ctx.audioWorklet.addModule(url);
+        URL.revokeObjectURL(url);
+        sourceNode = ctx.createMediaStreamSource(stream);
+        node = new AudioWorkletNode(ctx, 'cap');
+        node.port.onmessage = event => onFrame(event.data);
+        sourceNode.connect(node);
+        frames = []; preroll = []; speechMs = silentMs = clipMs = 0; clipsOut = 0;
+        log('mic', `recording at ${ctx.sampleRate}Hz`);
+        return {ok: true};
+      } catch (error) {
+        this.stop();
+        log('mic', `start failed: ${error.name} ${error.message}`);
+        return {ok: false, error: error.name === 'NotAllowedError' ? 'Microphone permission denied. Allow it in Settings > Safari > Microphone.' : `Microphone unavailable (${error.name}).`};
+      }
+    },
+    /** Emits the last partial clip, then releases the microphone. */
+    stop() {
+      if (ctx && frames.length) cut(true);
+      node?.disconnect(); sourceNode?.disconnect();
+      stream?.getTracks().forEach(track => track.stop());
+      ctx?.close().catch(() => {});
+      try { navigator.audioSession.type = 'playback'; } catch { /* unsupported */ }
+      ctx = stream = node = sourceNode = null;
+      onLevel?.(0);
+    },
+    active: () => !!ctx,
+  };
+}
