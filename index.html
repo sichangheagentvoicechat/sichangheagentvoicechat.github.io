@@ -78,7 +78,7 @@ const handsfree=createHandsfree({
   getContext:()=>({agent:el.agent.value}),
   onRecording:async(blob,meta)=>{if(!outbox)throw new Error('Offline storage unavailable.');const id=submissionId();const result=await outbox.add({id,kind:'audio',agent:meta.context.agent,blob,handsfree:true,prefix:meta.draft||'',command:meta.state==='listening'});if(result.error)throw new Error(result.error);return id;},
   onTranscribed:async id=>{if(id)await outbox.remove(id);},
-  onState:state=>{listeningState.textContent=state==='off'?'':state==='listening'?'Listening for “pause”':state;if(state==='off'&&autoplay){autoplay=false;autoButton.textContent='Auto-play: off';autoButton.setAttribute('aria-pressed','false');cancelAudio();}},
+  onState:state=>{listeningState.textContent=state==='off'?'':state==='listening'?'Listening for “pause”':state;},
   onError:status,
   onDraft:(text,id)=>{const previous=drafts[el.agent.value],oldText=el.draft.value,oldPending=pending;el.draft.value=text;pending=null;if(id)appliedRecordings.add(id);if(!saveDraft()){drafts[el.agent.value]=previous;el.draft.value=oldText;pending=oldPending;if(id)appliedRecordings.delete(id);throw new Error('Draft storage unavailable. Recording retained.');}controls();},
   onPause:async()=>{responseAgent=el.agent.value;resumeReading=readingPosition?{...readingPosition,index:Math.max(0,readingPosition.index-(audio.elapsed()<1?1:0))}:null;audio.pause();await new Promise((resolve,reject)=>{promptDone=resolve;audio.speak('Paused. Give your response. Say resume autoplay when finished.',()=>{promptDone=null;resolve();},()=>{promptDone=null;reject(new Error('Could not play the response prompt.'));});});},
@@ -118,7 +118,8 @@ async function playQueued(){
   const finished=()=>{autoplayQueue.shift();autoplaySpeaking=false;playQueued();};
   const text=spokenText(message.text);
   if(!text){finished();return;}
-  readMessage(message,0,finished,()=>{autoplaySpeaking=false;autoplay=false;autoButton.textContent='Auto-play: off';autoButton.setAttribute('aria-pressed','false');});
+  // 🧑 "Why does autoplay turn off by itself? it should stay on": a failed message is skipped, autoplay stays on.
+  readMessage(message,0,finished,()=>{status('Could not play a message; skipped it.');finished();});
 }
 let lastRead=null;
 function readMessage(message,start=0,done,failed,completeRead=start===0){lastRead=message;
@@ -259,6 +260,31 @@ compactControls=installCompactControls({composer,draft:el.draft,dictate:el.dicta
 {const dock=document.querySelector('.reader-dock');const step=delta=>{const replies=messages.filter(m=>m.sender==='agent');if(!replies.length){status('No agent messages here.');return;}let i=replies.findIndex(m=>m.id===lastRead?.id);i=i<0?(delta<0?replies.length-1:0):Math.min(replies.length-1,Math.max(0,i+delta));handsfree.stop();cancelAudio();const m=replies[i];readMessage(m,0);document.querySelector('article[data-message-id="'+m.id+'"]')?.scrollIntoView({block:'start'});};for(const [label,delta] of [['⏮',-1],['⏭',1]]){const b=document.createElement('button');b.textContent=label;b.title=delta<0?'Previous agent message':'Next agent message';b.style.cssText='min-width:40px;padding:4px';b.onclick=()=>step(delta);dock.insertBefore(b,document.getElementById('pause'));}}
 // 🧑 "get rid of it Merge the things inside the bottom. are think account configuration should be hidden behind another screen."
 {const header=document.querySelector('header'),dock=document.querySelector('.reader-dock');el.agent.style.cssText='width:auto;flex:1 1 30%;min-width:0;padding:4px';dock.prepend(el.agent);connection.style.alignSelf='center';el.agent.after(connection);const rowBreak=document.createElement('div');rowBreak.style.flexBasis='100%';rowBreak.style.height='0';connection.after(rowBreak);dock.style.flexWrap='wrap';el.agent.style.flex='1 1 auto';for(const b of dock.querySelectorAll('button')){b.style.flex='1 1 0';b.style.minWidth='0';b.style.padding='4px 2px';b.style.fontSize='14px';}for(const node of [...header.children])if(node!==el.agent&&node!==connection&&!['H1','LABEL'].includes(node.tagName)&&node.id!=='mode'&&!node.contains(el.choose))composer.append(node);header.hidden=true;}
+// 🧑 "Look at your interface, it looks so ugly." One tidy icon row; names stay as accessible labels.
+{const dock=document.querySelector('.reader-dock'),style=document.createElement('style');
+style.textContent=`body{background:#f4f6f7;color:#1d2a30;font:16px -apple-system,system-ui,sans-serif}
+section{background:#fff;border-radius:10px}
+#messages article{padding:8px 4px;border-bottom:1px solid #e6ecee}
+.reader-dock{gap:6px;padding:6px 4px calc(6px + env(safe-area-inset-bottom,0px));background:#f4f6f7;border-top:1px solid #dde4e7}
+.reader-dock select{border:1px solid #cfd8dc;border-radius:8px;background:#fff;font-size:15px;padding:6px 8px}
+.reader-dock button{border:1px solid #cfd8dc;border-radius:22px;background:#fff;min-height:44px;color:#1d2a30}
+.reader-dock button.icon{font-size:0}.reader-dock button.icon::before{content:attr(data-icon);font-size:20px;line-height:1}
+.reader-dock button[aria-pressed=true],.reader-dock button.primary{background:#135b66;border-color:#135b66;color:#fff}
+.reader-dock button:disabled{opacity:.35}
+#connection{font-size:11px;color:#8a5a00}
+#status{font-size:12px;color:#5b6b72}
+section:last-child button{border-radius:8px;border:1px solid #cfd8dc;background:#fff;min-height:40px}
+section:last-child button.primary{background:#135b66;color:#fff;border-color:#135b66}
+textarea{border:1px solid #cfd8dc;border-radius:8px;font:inherit}`;
+document.head.append(style);
+const iconize=(b,icon,label)=>{if(!b)return;b.style.fontSize='';b.classList.add('icon');b.dataset.icon=icon;b.setAttribute('aria-label',label);b.title=label;};
+const toggle=[...dock.querySelectorAll('button')].find(b=>b.textContent==='Compose');
+iconize(toggle,'⋯','Compose');iconize(el.dictate,'🎙','Dictate');iconize(el.quiet,'⏹','Stop audio');
+iconize(autoButton,'∞','Auto-play');
+for(const b of dock.querySelectorAll('button'))if(b.textContent==='⏮'||b.textContent==='⏭')iconize(b,b.textContent,b.title);
+const syncPlay=()=>{const playing=pauseButton.textContent==='Pause';iconize(pauseButton,playing?'⏸':'▶',playing?'Pause':'Play');};new MutationObserver(syncPlay).observe(pauseButton,{childList:true,characterData:true,subtree:true});syncPlay();
+el.listen.hidden=true;
+const order=[toggle,...[...dock.querySelectorAll('button')].filter(b=>b.textContent==='⏮'),pauseButton,...[...dock.querySelectorAll('button')].filter(b=>b.textContent==='⏭'),autoButton,el.dictate,el.quiet];for(const b of order)if(b)dock.append(b);}
 try{const saved=JSON.parse(localStorage.getItem('voice-position:'+storageScope));if(saved&&conversations.some(c=>c.id===saved.agent)){pausedPosition=saved;el.agent.value=saved.agent;el.draft.value=drafts[saved.agent]?.text||'';pending=drafts[saved.agent]?.pending||null;await load(saved.id);pauseButton.textContent='Play';}}catch{}
 setInterval(pollEvents,window.voiceBrowserOnly?5000:1500);
 window.addEventListener('voice-task-update',pollEvents);

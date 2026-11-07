@@ -25,7 +25,7 @@ export function createAudio({status,transcribe,clipsChanged=()=>{}}){
   }
   function retryClip(id){const clip=clips.find(item=>item.id===id);if(clip?.state==='error'){if(clip.result){clip.state='ready';notifyClips();void drainClips();}else void runClip(clip);}}
   async function prepare(text,signal){
-    const result=await resilientFetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text}),signal},{retries:0,timeoutMs:10000});
+    const result=await resilientFetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text}),signal},{retries:1,timeoutMs:20000});
     if(result.error)return {error:result.error};
     if(!result.response.ok)return {error:(await result.response.json()).error};
     if(result.response.headers.get('content-type')?.includes('application/json')){const data=await result.response.json();if(typeof data.audioURL!=='string')return {error:'Invalid audio response.'};const preload=new Audio();preload.preload='auto';preload.src=data.audioURL;return {...data,preload};}
