@@ -1,6 +1,6 @@
 /** Debug timeline: ring buffer of `{t, cat, msg}` persisted so a crashed or reloaded page's previous session can still be copied. */
 const KEY = 'voice2-log';
-const MAX_LINES = 1500;
+const MAX_LINES = 800;
 
 export function createLog(storage = globalThis.localStorage, now = Date.now) {
   let lines = [];
@@ -16,7 +16,7 @@ export function createLog(storage = globalThis.localStorage, now = Date.now) {
   setInterval(save, 2000);
   globalThis.addEventListener?.('pagehide', save);
   const log = (cat, msg) => {
-    const line = {t: now(), cat, msg: String(msg).slice(0, 400)};
+    const line = {t: now(), cat, msg: String(msg).slice(0, 300)};
     lines.push(line);
     if (lines.length > MAX_LINES) lines.splice(0, lines.length - MAX_LINES);
     dirty = true;

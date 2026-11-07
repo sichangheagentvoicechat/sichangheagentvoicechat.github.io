@@ -1,13 +1,13 @@
 /** Wires the model, Zulip events, voice service, player, recorder and DOM. Behavior is described in `../docs/v2/design.md`. */
-import {createLog} from './log.mjs?v=0239b7bf99';
-import {createZulip, createEvents} from './zulip.mjs?v=0239b7bf99';
-import {createVoice} from './voice.mjs?v=0239b7bf99';
-import {createPlayer} from './player.mjs?v=0239b7bf99';
-import {createRecorder} from './recorder.mjs?v=0239b7bf99';
-import {createModel, parsed, itemsOf} from './model.mjs?v=0239b7bf99';
-import {agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=0239b7bf99';
+import {createLog} from './log.mjs?v=5fdf311618';
+import {createZulip, createEvents} from './zulip.mjs?v=5fdf311618';
+import {createVoice} from './voice.mjs?v=5fdf311618';
+import {createPlayer} from './player.mjs?v=5fdf311618';
+import {createRecorder} from './recorder.mjs?v=5fdf311618';
+import {createModel, parsed, itemsOf} from './model.mjs?v=5fdf311618';
+import {agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=5fdf311618';
 
-const BUILD = 'v2.0-0239b7bf99';
+const BUILD = 'v2.0-5fdf311618';
 const ACCOUNT_KEY = 'zulip-voice-account';
 const $ = id => document.getElementById(id);
 const store = {
@@ -559,7 +559,11 @@ for (const dialog of document.querySelectorAll('dialog')) {
 }
 
 // ---- connection and debug ----
+let lastState = 'connecting', lastAutoLogMs = 0;
 function renderConn(info) {
+  // After an outage the timeline is the evidence; send it once (at most every 2 min).
+  if (info.state === 'live' && lastState !== 'live' && lastState !== 'connecting' && Date.now() - lastAutoLogMs > 120000 && cfg.relayStreamId) { lastAutoLogMs = Date.now(); sendLog('reconnected after ' + lastState); }
+  lastState = info.state;
   $('conn').dataset.state = info.state;
   $('conn-text').textContent = info.state === 'live' ? '' : info.state === 'offline' ? 'Offline' : 'Reconnecting…';
   if (document.querySelector('#debug-sheet[open]')) renderDebug();
@@ -591,6 +595,8 @@ $('dbg-copy').onclick = async () => {
   try { await navigator.clipboard.writeText(text); toast('Copied'); }
   catch { const range = document.createRange(); range.selectNodeContents($('debug-log')); getSelection().removeAllRanges(); getSelection().addRange(range); toast('Select-all done; use Copy in the menu'); }
 };
+async function sendLog(label) { const r = await voice.sendLog(label, debugStatus() + '\n' + log.text()); log('app', `log sent (${label}): ${r.ok ? 'ok' : r.error}`); return r; }
+$('dbg-send').onclick = async () => toast((await sendLog('manual')).ok ? 'Sent to server' : 'Send failed');
 $('dbg-clear').onclick = () => { log.clear(); renderDebug(); };
 $('dbg-kick').onclick = () => events.kick('manual');
 $('dbg-ping').onclick = async () => { const r = await checkVoice(); toast(r.text); renderDebug(); };

@@ -43,6 +43,7 @@ export function createVoice({zulip, cfg, log}) {
     const posted = await zulip.call('POST', 'messages', {type: 'stream', to: cfg.relayStreamId, topic: op, content: JSON.stringify({voice: 1, id, op, ...fields})});
     if (!posted.ok) { pending.delete(id); return {ok: false, error: posted.error}; }
     const postedMs = performance.now() - sentMs;
+    if (op === 'log') waiting.then(() => zulip.call('DELETE', 'messages/' + posted.data.id));
     const result = await waiting;
     const totalMs = Math.round(performance.now() - sentMs);
     if (!result) { log('relay', `${op} ${id} timeout after ${totalMs}ms`); return {ok: false, error: `${op} timed out`}; }
@@ -96,10 +97,16 @@ export function createVoice({zulip, cfg, log}) {
     }, 8000);
   }
 
+  /** Sends debug text (tail-truncated) to the service's bounded `client.log`, then removes the request message from Zulip. */
+  async function sendLog(label, text) {
+    const r = await request('log', {label, text: text.slice(-9000)}, 15000);
+    return r.ok ? {ok: true} : r;
+  }
+
   async function ping() {
     const r = await request('ping', {t: Date.now()}, 15000);
     return r.ok ? {ok: true, ...r.result, totalMs: r.totalMs} : r;
   }
 
-  return {onMessage, backfill, tts, stt, clipUrl, release, ping, preparedCount: () => prepared.size, pendingCount: () => pending.size};
+  return {onMessage, backfill, sendLog, tts, stt, clipUrl, release, ping, preparedCount: () => prepared.size, pendingCount: () => pending.size};
 }

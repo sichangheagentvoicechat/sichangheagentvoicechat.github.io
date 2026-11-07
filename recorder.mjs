@@ -75,15 +75,17 @@ export function createRecorder({log, onClip, onLevel}) {
   return {
     async start() {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({audio: {echoCancellation: true, noiseSuppression: true, autoGainControl: true}});
         try { navigator.audioSession.type = 'play-and-record'; } catch { /* unsupported */ }
         ctx = new (window.AudioContext || window.webkitAudioContext)();
-        await ctx.resume();
+        const resumed = ctx.resume();
+        stream = await navigator.mediaDevices.getUserMedia({audio: {echoCancellation: true, noiseSuppression: true, autoGainControl: true}});
+        await resumed;
         const url = URL.createObjectURL(new Blob([WORKLET], {type: 'text/javascript'}));
         await ctx.audioWorklet.addModule(url);
         URL.revokeObjectURL(url);
         sourceNode = ctx.createMediaStreamSource(stream);
         node = new AudioWorkletNode(ctx, 'cap');
+        node.connect(ctx.destination);
         node.port.onmessage = event => onFrame(event.data);
         sourceNode.connect(node);
         frames = []; preroll = []; speechMs = silentMs = clipMs = 0; clipsOut = 0;
