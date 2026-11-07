@@ -120,7 +120,8 @@ async function playQueued(){
   if(!text){finished();return;}
   readMessage(message,0,finished,()=>{autoplaySpeaking=false;autoplay=false;autoButton.textContent='Auto-play: off';autoButton.setAttribute('aria-pressed','false');});
 }
-function readMessage(message,start=0,done,failed,completeRead=start===0){
+let lastRead=null;
+function readMessage(message,start=0,done,failed,completeRead=start===0){lastRead=message;
   const parts=splitSentences(spokenText(message.text));
   function next(index){if(index>=parts.length){readingPosition=null;rememberPosition(null);reader.clear();if(completeRead&&Number.isSafeInteger(message.id)){spokenIds.add(message.id);unsavedReads.add(message.id);saveReads();}done?.();return;}readingPosition={message,index,done,failed,completeRead};pauseButton.textContent='Pause';rememberPosition({agent:el.agent.value,id:message.id,index,completeRead});speak(parts[index],()=>next(index+1),failed,()=>reader.highlight(message.id,index));const following=autoplay?autoplayQueue.filter(m=>m.id!==message.id&&m.agent===el.agent.value).flatMap(m=>splitSentences(spokenText(m.text))):[];audio.prefetch([...parts.slice(index+1),...following].flatMap(part=>part.match(/[\s\S]{1,1800}/g)||[]));}
   next(start);
@@ -254,8 +255,10 @@ if(!Recognition)status('Microphone capture is unavailable in this browser. You c
 controls();
 await pollEvents();
 compactControls=installCompactControls({composer,draft:el.draft,dictate:el.dictate});
+// 🧑 "have some sort of buttons to go to before and after"
+{const dock=document.querySelector('.reader-dock');const step=delta=>{const replies=messages.filter(m=>m.sender==='agent');if(!replies.length){status('No agent messages here.');return;}let i=replies.findIndex(m=>m.id===lastRead?.id);i=i<0?(delta<0?replies.length-1:0):Math.min(replies.length-1,Math.max(0,i+delta));handsfree.stop();cancelAudio();const m=replies[i];readMessage(m,0);document.querySelector('article[data-message-id="'+m.id+'"]')?.scrollIntoView({block:'start'});};for(const [label,delta] of [['⏮',-1],['⏭',1]]){const b=document.createElement('button');b.textContent=label;b.title=delta<0?'Previous agent message':'Next agent message';b.style.cssText='min-width:40px;padding:4px';b.onclick=()=>step(delta);dock.insertBefore(b,document.getElementById('pause'));}}
 // 🧑 "get rid of it Merge the things inside the bottom. are think account configuration should be hidden behind another screen."
-{const header=document.querySelector('header'),dock=document.querySelector('.reader-dock');el.agent.style.cssText='width:auto;flex:1 1 30%;min-width:0;padding:4px';dock.prepend(el.agent);connection.style.alignSelf='center';dock.append(connection);for(const node of [...header.children])if(node!==el.agent&&node!==connection&&!['H1','LABEL'].includes(node.tagName)&&node.id!=='mode'&&!node.contains(el.choose))composer.append(node);header.hidden=true;}
+{const header=document.querySelector('header'),dock=document.querySelector('.reader-dock');el.agent.style.cssText='width:auto;flex:1 1 30%;min-width:0;padding:4px';dock.prepend(el.agent);connection.style.alignSelf='center';el.agent.after(connection);const rowBreak=document.createElement('div');rowBreak.style.flexBasis='100%';rowBreak.style.height='0';connection.after(rowBreak);dock.style.flexWrap='wrap';el.agent.style.flex='1 1 auto';for(const b of dock.querySelectorAll('button')){b.style.flex='1 1 0';b.style.minWidth='0';b.style.padding='4px 2px';b.style.fontSize='14px';}for(const node of [...header.children])if(node!==el.agent&&node!==connection&&!['H1','LABEL'].includes(node.tagName)&&node.id!=='mode'&&!node.contains(el.choose))composer.append(node);header.hidden=true;}
 try{const saved=JSON.parse(localStorage.getItem('voice-position:'+storageScope));if(saved&&conversations.some(c=>c.id===saved.agent)){pausedPosition=saved;el.agent.value=saved.agent;el.draft.value=drafts[saved.agent]?.text||'';pending=drafts[saved.agent]?.pending||null;await load(saved.id);pauseButton.textContent='Play';}}catch{}
 setInterval(pollEvents,window.voiceBrowserOnly?5000:1500);
 window.addEventListener('voice-task-update',pollEvents);
