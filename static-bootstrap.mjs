@@ -2,7 +2,8 @@
 import {createBrowserZulip} from './browser-zulip.mjs';
 import {createBrowserRelay} from './browser-relay.mjs';
 import {budgetRequests} from './request-budget.mjs';
-const nativeFetch=budgetRequests(window.fetch.bind(window)),storageKey='zulip-voice-account';
+import {wrapFetch,installDebug,log} from './debug-log.mjs';
+const rawFetch=window.fetch.bind(window),nativeFetch=wrapFetch(budgetRequests(wrapFetch(rawFetch,'net')),'api'),storageKey='zulip-voice-account';
 window.voiceBrowserOnly=true;
 let config;try{config=JSON.parse(localStorage.getItem(storageKey));}catch{}
 if(config&&(config.site!=='https://shagent.zulipchat.com'||config.humanId!==1212497)){localStorage.removeItem(storageKey);config=null;}
@@ -24,11 +25,13 @@ const relayReady=privateChannel&&!muted.error;
 if(!relayReady){const notice=document.createElement('p');notice.setAttribute('role','alert');notice.textContent='Voice is disabled until its private channel and muted notifications can be verified. Reload to retry.';document.querySelector('header').after(notice);}
 const relay=createBrowserRelay(adapter,nativeFetch);
 const account=document.createElement('button');account.textContent='Sign out…';account.onclick=()=>{if(confirm('Sign out of this account?')){localStorage.removeItem(storageKey);location.reload();}};document.querySelector('header').append(account);
-window.fetch=async(input,options={})=>{
+window.fetch=wrapFetch(async(input,options={})=>{
   const path=typeof input==='string'?input:new URL(input.url).pathname;
   if(path==='/api/audio-ack'){await relay.release(JSON.parse(options.body).id);return new Response('{}',{headers:{'Content-Type':'application/json'}});}
   if(path.startsWith('/api/tts')||path.startsWith('/api/stt'))return relayReady?relay.fetch(path,options):Response.json({error:'Private voice channel not verified. Reload to retry.'},{status:503});
   if(path.startsWith('/api/'))return adapter.fetch(path,options);
   return nativeFetch(input,options);
-};
+},'app');
+installDebug({post:async content=>{const r=await rawFetch(config.site+'/api/v1/messages',{method:'POST',headers:{Authorization:'Basic '+btoa(config.email+':'+config.key)},body:new URLSearchParams({type:'stream',to:String(config.relayStreamId),topic:'debug',content}),signal:AbortSignal.timeout(15000)});return r.ok;}});
+log('relay',relayReady?'ready':'NOT ready');
 window.startVoicePreload=callback=>relayReady?relay.start(callback):Promise.resolve();
