@@ -1,4 +1,4 @@
-/** Speech attachments in a dedicated human/bot DM; never route speech jobs to task topics. */
+/** Speech attachments in a muted private channel, with topics for each operation. */
 export function createBrowserRelay(adapter,nativeFetch){
   const {config}=adapter,pending=new Map();let queue=null,polling=false,registering=null;
   const cleanupKey='voice-relay-cleanup:'+config.site+':'+config.humanId;
@@ -14,15 +14,15 @@ export function createBrowserRelay(adapter,nativeFetch){
     }
     const result=await adapter.request(method,path,fields);if(result.error)throw new Error(result.error);return result.data;
   }
-  async function send(value){return api('POST','messages',{type:'direct',to:JSON.stringify([config.botId]),content:JSON.stringify(value)});}
+  async function send(value){return api('POST','messages',{type:'stream',to:String(config.relayStreamId),topic:value.op,content:JSON.stringify(value)});}
   async function upload(blob,id){const form=new FormData();form.append('file',blob,'voice-recording-'+id);const response=await nativeFetch(config.site+'/api/v1/user_uploads',{method:'POST',headers:{Authorization:auth},body:form,signal:AbortSignal.timeout(15000)});const result=await response.json();if(!response.ok||result.result!=='success')throw new Error('Audio upload failed.');return result.uri;}
   async function removeUpload(uri){const attachments=await api('GET','attachments',{});const item=attachments.attachments.find(a=>uri.endsWith(a.path_id));if(item)await api('DELETE','attachments/'+item.id,{});}
-  async function ensureQueue(){if(queue)return;if(!registering)registering=(async()=>{const result=await api('POST','register',{event_types:JSON.stringify(['message']),narrow:JSON.stringify([['is','private']]),apply_markdown:'false'});queue={id:result.queue_id,last:result.last_event_id};})().finally(()=>{registering=null;});await registering;}
+  async function ensureQueue(){if(queue)return;if(!registering)registering=(async()=>{const result=await api('POST','register',{event_types:JSON.stringify(['message']),narrow:JSON.stringify([['stream','voice-relay']]),apply_markdown:'false'});queue={id:result.queue_id,last:result.last_event_id};})().finally(()=>{registering=null;});await registering;}
   const cleaning=new Set();
   async function cleanup(id){const job=cleanupJobs[id];if(!job||!job.complete||cleaning.has(id))return;cleaning.add(id);try{
     if(job.sent&&!job.acked){const ack=await send({voice:1,id,op:'ack'});remember(id,{ackId:ack.id,acked:true});}
     if(job.sent&&!job.reconciled){
-      const recent=await api('GET','messages',{narrow:JSON.stringify([{operator:'dm',operand:[config.botId]}]),anchor:'newest',num_before:100,num_after:0,apply_markdown:'false'});
+      const recent=await api('GET','messages',{narrow:JSON.stringify([{operator:'stream',operand:config.relayStreamId}]),anchor:'newest',num_before:100,num_after:0,apply_markdown:'false'});
       for(const message of recent.messages||[]){if(message.sender_id!==config.humanId)continue;let value;try{value=JSON.parse(message.content);}catch{continue;}if(value.voice===1&&value.id===id&&['stt','tts','ack'].includes(value.op)){await api('DELETE','messages/'+message.id,{});for(const field of ['requestId','ackId'])if(job[field]===message.id)remember(id,{[field]:null});}}
       remember(id,{reconciled:true});
     }
@@ -34,7 +34,7 @@ export function createBrowserRelay(adapter,nativeFetch){
   for(const id of Object.keys(cleanupJobs)){remember(id,{complete:true,sent:cleanupJobs[id].sent||!!cleanupJobs[id].requestId});cleanup(id);}
   async function poll(){
     if(polling)return;polling=true;
-    try{while(pending.size){const result=await api('GET','events',{queue_id:queue.id,last_event_id:String(queue.last),dont_block:'false'});for(const event of result.events){queue.last=Math.max(queue.last,event.id);const message=event.message;if(event.type!=='message'||message.sender_id!==config.botId||message.type!=='private'||message.display_recipient.some(r=>![config.humanId,config.botId].includes(r.id)))continue;let response;try{response=JSON.parse(message.content);}catch{continue;}if(response.voice!==1||response.op!=='result')continue;const job=pending.get(response.id);if(job){pending.delete(response.id);job.resolve(response);}}}}
+    try{while(pending.size){const result=await api('GET','events',{queue_id:queue.id,last_event_id:String(queue.last),dont_block:'false'});for(const event of result.events){queue.last=Math.max(queue.last,event.id);const message=event.message;if(event.type!=='message'||message.sender_id!==config.botId||message.type!=='stream'||message.stream_id!==config.relayStreamId||!['stt','tts'].includes(message.subject))continue;let response;try{response=JSON.parse(message.content);}catch{continue;}if(response.voice!==1||response.op!=='result')continue;const job=pending.get(response.id);if(job){pending.delete(response.id);job.resolve(response);}}}}
     catch(error){for(const job of pending.values())job.reject(error);pending.clear();queue=null;}finally{polling=false;}
   }
   async function request(path,options){

@@ -14,6 +14,9 @@ async function login(previous){
 if(!config)config=await login();
 let adapter=createBrowserZulip(config,{fetch:nativeFetch,storage:localStorage});
 if((await adapter.verify()).error){config=await login(config);adapter=createBrowserZulip(config,{fetch:nativeFetch,storage:localStorage});}
+config.relayStreamId=652749;
+const muted=await adapter.request('POST','users/me/subscriptions/properties',{subscription_data:JSON.stringify(['push_notifications','desktop_notifications','audible_notifications','email_notifications','wildcard_mentions_notify'].map(property=>({stream_id:config.relayStreamId,property,value:false})))});
+if(muted.error)throw new Error('Could not mute the private voice channel: '+muted.error);
 const relay=createBrowserRelay(adapter,nativeFetch);
 const account=document.createElement('button');account.textContent='Account';account.onclick=()=>{localStorage.removeItem(storageKey);location.reload();};document.querySelector('header').append(account);
 window.fetch=async(input,options={})=>{

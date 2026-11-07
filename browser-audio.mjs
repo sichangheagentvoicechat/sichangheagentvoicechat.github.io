@@ -3,6 +3,9 @@ import {resilientFetch} from './resilient-fetch.mjs';
 export function createAudio({status,transcribe,clipsChanged=()=>{}}){
   const player=new Audio();let generation=0,controller=null,objectURL=null,unlocked=false,current=null,recordingSession=null;
   const prepared=new Map();
+  let preparing=0;const prepareQueue=[];
+  function pumpPrepared(){while(preparing<2&&prepareQueue.length){const job=prepareQueue.shift();if(job.signal.aborted){job.resolve({error:'Cancelled'});continue;}preparing++;prepare(job.text,job.signal).then(job.resolve,error=>job.resolve({error:error.message})).finally(()=>{preparing--;pumpPrepared();});}}
+  function prepareAhead(text,signal){return new Promise(resolve=>{prepareQueue.push({text,signal,resolve});pumpPrepared();});}
   const clips=[];let nextClip=0,draining=false;
   function notifyClips(){clipsChanged(clips.map(({id,state,error,metadata})=>({id,state,error,metadata})));}
   async function drainClips(){
@@ -30,7 +33,13 @@ export function createAudio({status,transcribe,clipsChanged=()=>{}}){
   }
   function release(item){if(!item)return;item.preload?.pause();item.preload?.removeAttribute('src');if(item.relayId)fetch('/api/audio-ack',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:item.relayId})}).catch(()=>{});}
   function clearPrepared(){for(const item of prepared.values()){item.controller.abort();item.promise.then(release);}prepared.clear();}
-  function prefetch(text){if(!text||prepared.has(text))return;if(prepared.size>=2){const key=prepared.keys().next().value;prepared.get(key).controller.abort();prepared.get(key).promise.then(release);prepared.delete(key);}const controller=new AbortController();prepared.set(text,{controller,promise:prepare(text,controller.signal)});}
+  // 🧑 "we do need some sort of buffer" ... "don't blow up the disk space usage"
+  function prefetch(texts){
+    const wanted=new Set();let chars=0;
+    for(const text of Array.isArray(texts)?texts:[texts]){if(!text||wanted.has(text))continue;if(wanted.size>=12||chars+text.length>9000)break;wanted.add(text);chars+=text.length;}
+    for(const [text,item] of prepared)if(!wanted.has(text)){item.controller.abort();item.promise.then(release);prepared.delete(text);}
+    for(const text of wanted)if(!prepared.has(text)){const controller=new AbortController();prepared.set(text,{controller,promise:prepareAhead(text,controller.signal)});}
+  }
   let rate=1;try{rate=Number(localStorage.getItem('voice-speed'))||1;}catch{}
   function setRate(value){rate=Math.round(Math.max(0.5,Math.min(3,value))*10)/10;player.playbackRate=rate;try{localStorage.setItem('voice-speed',String(rate));}catch{}}
   function unlock(){
@@ -58,7 +67,7 @@ export function createAudio({status,transcribe,clipsChanged=()=>{}}){
       player.onerror=()=>{if(token===generation){release(current);current=null;status('Audio playback failed. Tap a sentence to retry.');failed?.();}};
       await player.play();
       if(token===generation)started?.();
-    }catch(error){if(token!==generation)return;status('Audio: '+error.message);failed?.();}
+    }catch(error){if(token!==generation)return;release(current);current=null;status('Audio: '+error.message);failed?.();}
   }
   // 🧑 "allow another dictation while the previous one is processing"
   async function record(done,failed,metadata,stopped=()=>{}){

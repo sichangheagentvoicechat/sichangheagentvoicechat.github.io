@@ -27,6 +27,8 @@ const status = text=>{el.status.textContent=text;};
 let outbox=null,storageScope='pending',flushing=false,audioDraft=null;
 const activeRecordings=new Set();
 let dictationClips=[];
+let finishingSend=false,captureReady=false;
+const finishSend=document.createElement('button');finishSend.textContent='Finish & send';finishSend.id='finish-send';finishSend.disabled=true;el.stop.after(finishSend);
 const appliedRecordings=new Set();
 const connection=document.createElement('span');connection.id='connection';connection.style.fontSize='12px';document.querySelector('header').append(connection);
 const networkState=({state})=>{connection.textContent=state==='connected'?'':state==='retrying'?'Reconnecting…':'Offline · drafts kept';};
@@ -49,21 +51,20 @@ slower.onclick=()=>{audio.setRate(audio.getRate()-0.1);showSpeed();};faster.oncl
 document.addEventListener('click',()=>audio.unlock());
 let resumeReading=null,responseAgent=null,readingPosition=null,promptDone=null;
 let pausedPosition=null,compactControls;
-const pauseButton=document.createElement('button');pauseButton.id='pause';pauseButton.textContent='Pause';pauseButton.className='primary';document.querySelector('section:first-child .actions').append(pauseButton);
+const pauseButton=document.createElement('button');pauseButton.id='pause';pauseButton.textContent='Play';pauseButton.className='primary';document.querySelector('section:first-child .actions').append(pauseButton);
 function rememberPosition(position){pausedPosition=position;try{if(position)localStorage.setItem('voice-position:'+storageScope,JSON.stringify(position));else localStorage.removeItem('voice-position:'+storageScope);}catch{status('Playback position could not be saved.');}}
 pauseButton.onclick=async()=>{
   if(busy)return;
   if(pauseButton.textContent==='Pause'){
     if(readingPosition)rememberPosition({agent:el.agent.value,id:readingPosition.message.id,index:readingPosition.index,completeRead:readingPosition.completeRead});
     if(!pausedPosition){status('Start reading a message first.');return;}
-    autoplay=false;handsfree.stop();cancelAudio();autoButton.textContent='Auto-play: off';autoButton.setAttribute('aria-pressed','false');pauseButton.textContent='Resume';compactControls?.open(true);if(!pending)startRecognition();return;
+    autoplay=false;handsfree.stop();cancelAudio();autoButton.textContent='Auto-play: off';autoButton.setAttribute('aria-pressed','false');pauseButton.textContent='Play';return;
   }
   pauseButton.disabled=true;
   try{
-    if(recording)audio.finish();const deadline=Date.now()+12000;while((recording||dictationClips.length)&&Date.now()<deadline){if(dictationClips.some(clip=>clip.state==='error'))break;await new Promise(resolve=>setTimeout(resolve,50));}if(recording||dictationClips.length){status('Finish or retry pending recordings before resuming.');return;}
-    const saved=pausedPosition;if(!saved)return;
+    if(recording)return;
+    const saved=pausedPosition;if(!saved){if(!autoplay)autoButton.click();return;}
     if(saved.agent!==el.agent.value){status('Return to '+saved.agent+' to resume this message.');return;}
-    if(el.draft.value.trim()&&!await send(true))return;
     await load(saved.id);const message=messages.find(m=>m.id===saved.id);if(!message){status('Saved message could not be loaded.');return;}
     cancelAudio();autoplay=true;autoButton.textContent='Auto-play: on';autoButton.setAttribute('aria-pressed','true');pauseButton.textContent='Pause';compactControls?.open(false);audio.unlock();
     autoplaySpeaking=true;
@@ -119,12 +120,12 @@ async function playQueued(){
 }
 function readMessage(message,start=0,done,failed,completeRead=start===0){
   const parts=splitSentences(spokenText(message.text));
-  function next(index){if(index>=parts.length){readingPosition=null;rememberPosition(null);reader.clear();if(completeRead&&Number.isSafeInteger(message.id)){spokenIds.add(message.id);unsavedReads.add(message.id);saveReads();}done?.();return;}readingPosition={message,index,done,failed,completeRead};pauseButton.textContent='Pause';rememberPosition({agent:el.agent.value,id:message.id,index,completeRead});speak(parts[index],()=>next(index+1),failed,()=>{reader.highlight(message.id,index);if(parts[index+1]?.length<=1800)audio.prefetch(parts[index+1]);});}
+  function next(index){if(index>=parts.length){readingPosition=null;rememberPosition(null);reader.clear();if(completeRead&&Number.isSafeInteger(message.id)){spokenIds.add(message.id);unsavedReads.add(message.id);saveReads();}done?.();return;}readingPosition={message,index,done,failed,completeRead};pauseButton.textContent='Pause';rememberPosition({agent:el.agent.value,id:message.id,index,completeRead});speak(parts[index],()=>next(index+1),failed,()=>reader.highlight(message.id,index));const following=autoplay?autoplayQueue.filter(m=>m.id!==message.id&&m.agent===el.agent.value).flatMap(m=>splitSentences(spokenText(m.text))):[];audio.prefetch([...parts.slice(index+1),...following].flatMap(part=>part.match(/[\s\S]{1,1800}/g)||[]));}
   next(start);
 }
 const autoButton=document.getElementById('auto');
 // 🧑 "A button that automatically plays everything new received" ... "Should be a toggle"
-autoButton.onclick=async()=>{if(autoplay){autoplay=false;handsfree.stop();cancelAudio();autoplayQueue.length=0;}else{cancelAudio();autoplay=true;audio.unlock();await queueUnread();playQueued();}autoButton.textContent='Auto-play: '+(autoplay?'on':'off');autoButton.setAttribute('aria-pressed',String(autoplay));};
+autoButton.onclick=async()=>{if(autoplay){autoplay=false;handsfree.stop();cancelAudio();autoplayQueue.length=0;}else{cancelAudio();autoplay=true;audio.unlock();await queueUnread();const saved=pausedPosition;if(saved?.agent===el.agent.value){await load(saved.id);const message=messages.find(m=>m.id===saved.id);if(message){autoplaySpeaking=true;readMessage(message,saved.index,()=>{autoplaySpeaking=false;queueUnread().then(playQueued);},()=>{autoplaySpeaking=false;},saved.completeRead);}else{autoplay=false;status('Saved message could not be loaded. Tap a message to choose a new position.');}}else playQueued();}autoButton.textContent='Auto-play: '+(autoplay?'on':'off');autoButton.setAttribute('aria-pressed',String(autoplay));};
 // 🧑 "allow agents to produce some fixed texts that would make the backend do the switch to another agent specified"
 async function pollEvents(){
   if(!ready||polling||busy||recording||document.hidden||!['off','listening'].includes(handsfree.state))return;
@@ -161,10 +162,10 @@ async function pollEvents(){
     if(completed)eventCursor=result.data.cursor;
   }finally{if(autoplay)await queueUnread();polling=false;playQueued();}
 }
-function controls(){el.dictate.disabled=!ready||!Recognition||busy||recording||!!pending;el.choose.disabled=!ready||!Recognition||busy||recording;el.stop.disabled=!recording;el.review.disabled=!ready||busy||recording||!el.draft.value.trim();el.send.disabled=!ready||busy||recording||!el.draft.value.trim();el.agent.disabled=!ready||busy;el.draft.disabled=!ready||busy||recording||!!pending;el.listen.disabled=!ready||loading;cancelQueued.hidden=!pending;cancelQueued.disabled=busy;}
-function cancelAudio(){generation++;promptDone?.();promptDone=null;recording=false;autoplaySpeaking=false;speaking=false;if(readingPosition)pauseButton.textContent='Resume';readingPosition=null;audio.stop();reader.clear();controls();}
+function controls(){el.dictate.disabled=!ready||!Recognition||busy||recording||!!pending||finishingSend;el.choose.disabled=!ready||!Recognition||busy||recording;el.stop.disabled=!recording||!captureReady;finishSend.disabled=!recording||!captureReady||finishingSend;el.review.disabled=!ready||busy||recording||!el.draft.value.trim()||finishingSend;el.send.disabled=!ready||busy||recording||!el.draft.value.trim()||finishingSend;el.agent.disabled=!ready||busy||finishingSend;el.draft.disabled=!ready||busy||recording||!!pending||finishingSend;el.listen.disabled=!ready||loading;cancelQueued.hidden=!pending;cancelQueued.disabled=busy;}
+function cancelAudio(){generation++;promptDone?.();promptDone=null;recording=false;captureReady=false;autoplaySpeaking=false;speaking=false;pauseButton.textContent='Play';readingPosition=null;audio.stop();reader.clear();controls();}
 function speak(text,done,failed,started){speaking=true;const parts=splitSentences(text).flatMap(part=>part.match(/[\s\S]{1,1800}/g)||[]);function next(index){if(index===parts.length){speaking=false;done?.();return;}audio.speak(parts[index],()=>next(index+1),()=>{speaking=false;failed?.();},started);}next(0);}
-function startRecognition(confirm=false){cancelAudio();if(!Recognition)return;const token=generation,recipient=el.agent.value,base=el.draft.value.trim();audioDraft={id:submissionId(),agent:recipient,prefix:base,confirm};recording=true;controls();audio.record(async(result,meta)=>{if(confirm){if(token!==generation||recipient!==el.agent.value)return;await outbox.remove(result.id);const command=result.text.toLowerCase().replace(/[.!?,]/g,'').trim();if(command==='send')send();else status(command==='cancel'?'Draft kept. Nothing sent.':'Nothing sent. Say exactly “send”, or use the button.');}else{if(!storeTranscript(result.id,meta.agent,result.text,meta.prefix))throw new Error('Draft storage failed; recording retained.');await outbox.remove(result.id);controls();status('Transcript added to '+meta.agent+'.');}},()=>{controls();},{...audioDraft},()=>{recording=false;controls();});}
+function startRecognition(confirm=false){cancelAudio();if(!Recognition)return;const token=generation,recipient=el.agent.value,base=el.draft.value.trim();audioDraft={id:submissionId(),agent:recipient,prefix:base,confirm};recording=true;controls();audio.record(async(result,meta)=>{if(confirm){if(token!==generation||recipient!==el.agent.value)return;await outbox.remove(result.id);const command=result.text.toLowerCase().replace(/[.!?,]/g,'').trim();if(command==='send')send();else status(command==='cancel'?'Draft kept. Nothing sent.':'Nothing sent. Say exactly “send”, or use the button.');}else{if(!storeTranscript(result.id,meta.agent,result.text,meta.prefix))throw new Error('Draft storage failed; recording retained.');await outbox.remove(result.id);controls();status('Transcript added to '+meta.agent+'.');}},()=>{controls();},{...audioDraft},()=>{recording=false;captureReady=false;controls();}).then(()=>{if(token===generation&&recording){captureReady=true;controls();}});}
 function persistDrafts(){try{localStorage.setItem('voice-draft:'+storageScope,JSON.stringify({agent:el.agent.value,drafts,appliedRecordings:[...appliedRecordings]}));return true;}catch{status('Draft storage unavailable. Keep this page open until sending is resolved.');return false;}}
 function saveDraft(){drafts[el.agent.value]={text:el.draft.value,pending};return persistDrafts();}
 function storeTranscript(id,agent,text,prefix=''){
@@ -214,8 +215,20 @@ async function load(anchor=readingPosition?.message.id){const recipient=el.agent
 async function send(preserveAudio=false){if(!ready||busy||!el.draft.value.trim())return false;if(!preserveAudio)cancelAudio();const agent=el.agent.value,text=el.draft.value.trim();if(!pending||pending.agent!==agent||pending.text!==text)pending={id:submissionId(),agent,text};saveDraft();busy=true;controls();const submission={...pending};if(!outbox){busy=false;controls();status('Offline storage unavailable. Nothing sent.');return false;}const existing=await outbox.get(submission.id);if(!existing.data){const saved=await outbox.add({id:submission.id,agent,kind:'send',payload:submission});if(saved.error){busy=false;controls();status(saved.error);return false;}}const result=await api('/api/send',submission);busy=false;if(result.error){status(result.error);controls();return false;}await outbox.remove(submission.id);pending=null;el.draft.value='';saveDraft();status((mock?'Mock message':'Message')+' delivered to '+conversations.find(c=>c.id===agent).name+'.');await load();controls();return true;}
 el.dictate.onclick=()=>{handsfree.stop();startRecognition();};
 el.stop.onclick=()=>audio.finish();
+// 🧑 "after finishing dictating there should be an option to directly send so I don't need to click two things."
+finishSend.onclick=async()=>{
+  if(!recording||!captureReady||finishingSend)return;
+  const recipient=audioDraft.agent;finishingSend=true;audio.finish();controls();
+  try{
+    const deadline=Date.now()+20000;
+    do{await new Promise(resolve=>setTimeout(resolve,50));if(dictationClips.some(clip=>clip.state==='error')){status('Transcription failed. Retry the clip, then send your draft.');return;}}while((recording||dictationClips.length)&&Date.now()<deadline);
+    if(recording||dictationClips.length){status('Transcription is still pending. Your recording is saved; send after it finishes.');return;}
+    if(recipient!==el.agent.value){status('Draft kept for '+recipient+'. Return there to send.');return;}
+    await send();
+  }finally{finishingSend=false;controls();}
+};
 el.quiet.onclick=()=>{handsfree.stop();cancelAudio();autoplay=false;autoButton.textContent='Auto-play: off';autoButton.setAttribute('aria-pressed','false');autoplayQueue.length=0;status('Audio stopped.');};
-el.review.onclick=()=>{cancelAudio();const name=conversations.find(c=>c.id===el.agent.value)?.name;speak('To '+name+'. '+el.draft.value+'. Use the Send button to send.');};
+el.review.remove();
 el.send.onclick=()=>{handsfree.stop();send();};
 el.listen.onclick=async()=>{cancelAudio();const token=generation;await load();if(token!==generation||!loaded)return;const replies=messages.filter(m=>m.sender==='agent');function next(index){if(index<replies.length)readMessage(replies[index],0,()=>next(index+1));}next(0);};
 el.draft.oninput=()=>{cancelAudio();pending=null;saveDraft();controls();};
@@ -240,7 +253,7 @@ if(!Recognition)status('Browser speech recognition unavailable. Use your keyboar
 controls();
 await pollEvents();
 compactControls=installCompactControls({composer,draft:el.draft,dictate:el.dictate});
-try{const saved=JSON.parse(localStorage.getItem('voice-position:'+storageScope));if(saved&&conversations.some(c=>c.id===saved.agent)){pausedPosition=saved;el.agent.value=saved.agent;el.draft.value=drafts[saved.agent]?.text||'';pending=drafts[saved.agent]?.pending||null;await load(saved.id);pauseButton.textContent='Resume';}}catch{}
+try{const saved=JSON.parse(localStorage.getItem('voice-position:'+storageScope));if(saved&&conversations.some(c=>c.id===saved.agent)){pausedPosition=saved;el.agent.value=saved.agent;el.draft.value=drafts[saved.agent]?.text||'';pending=drafts[saved.agent]?.pending||null;await load(saved.id);pauseButton.textContent='Play';}}catch{}
 setInterval(pollEvents,1500);
 setInterval(flushOutbox,10000);
 window.addEventListener('online',()=>{if(!ready)location.reload();else{flushOutbox();pollEvents();}});
