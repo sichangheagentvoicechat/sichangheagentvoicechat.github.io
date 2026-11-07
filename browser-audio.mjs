@@ -98,7 +98,7 @@ export function createAudio({status,transcribe,clipsChanged=()=>{}}){
           if(session.ended)cleanup();else captureChunk();
           const blob=new Blob(chunks,{type:capture.mimeType});
           if(blob.size){const clip={id:++nextClip,blob,metadata:{...metadata,id:crypto.randomUUID()},done,failed,state:'processing'};clips.push(clip);void runClip(clip);}
-          if(session.ended)status('Transcribing final clip… You can dictate again.');
+          if(session.ended)status('Transcribing final clip…');
         };
         capture.start();
         session.interval=setInterval(()=>{

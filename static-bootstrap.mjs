@@ -23,7 +23,7 @@ const muted=await adapter.request('POST','users/me/subscriptions/properties',{su
 const relayReady=privateChannel&&!muted.error;
 if(!relayReady){const notice=document.createElement('p');notice.setAttribute('role','alert');notice.textContent='Voice is disabled until its private channel and muted notifications can be verified. Reload to retry.';document.querySelector('header').after(notice);}
 const relay=createBrowserRelay(adapter,nativeFetch);
-const account=document.createElement('button');account.textContent='Account';account.onclick=()=>{localStorage.removeItem(storageKey);location.reload();};document.querySelector('header').append(account);
+const account=document.createElement('button');account.textContent='Sign out…';account.onclick=()=>{if(confirm('Sign out of this account?')){localStorage.removeItem(storageKey);location.reload();}};document.querySelector('header').append(account);
 window.fetch=async(input,options={})=>{
   const path=typeof input==='string'?input:new URL(input.url).pathname;
   if(path==='/api/audio-ack'){await relay.release(JSON.parse(options.body).id);return new Response('{}',{headers:{'Content-Type':'application/json'}});}

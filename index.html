@@ -5,7 +5,7 @@
 <title>Voice</title>
 <style>
 :root{font:18px system-ui;color:#162b37;background:#edf3f5}body{max-width:740px;margin:auto;padding:20px}header{position:sticky;top:0;background:#edf3f5;padding:12px 0}h1{font-size:1.6rem;margin:0}label{display:block;margin:16px 0 6px}button,select,textarea{font:inherit;border:1px solid #90a5af;border-radius:12px;padding:14px}button{background:white;cursor:pointer;min-height:52px}button.primary{background:#135b66;color:white}button:disabled{opacity:.45;cursor:default}select,textarea{width:100%;box-sizing:border-box}textarea{min-height:130px}section{background:white;border-radius:18px;padding:18px;margin-top:16px}.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}.note{font-size:.9rem;color:#46606e}#status{min-height:2.7em}article{border-bottom:1px solid #dae4e8;padding:12px 0;white-space:pre-wrap}article:last-child{border:0}#mode{color:#905400}button:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #10898c;outline-offset:3px}
-*{box-sizing:border-box}body{margin:0;padding:4px;height:100vh;height:100dvh;max-width:none;display:flex;flex-direction:column;gap:4px;font-size:16px}header{position:static;padding:0}h1{font-size:17px}#mode{font-size:12px;margin:0}label{margin:2px 0}button,select,textarea{padding:6px;border-radius:6px}button{min-height:42px}main{display:flex;flex-direction:column;flex:1;min-height:0;gap:4px}section{padding:4px;margin:0;border-radius:6px}section:first-child{display:flex;flex-direction:column;flex:1;min-height:0}#messages{overflow:auto;flex:1;min-height:30px}textarea{min-height:64px;height:64px;max-height:20dvh}.actions{gap:4px;margin-top:2px}#status{min-height:18px;max-height:46px;overflow:auto;font-size:13px;margin:3px 0}.note{font-size:12px;margin:0}article{padding:5px 0}#choose{display:none}button[aria-pressed=true]{background:#135b66;color:white}
+*{box-sizing:border-box}body{margin:0;padding:4px;height:100vh;height:100dvh;max-width:none;display:flex;flex-direction:column;gap:4px;font-size:16px}header{position:static;padding:0}h1{font-size:17px}#mode{font-size:12px;margin:0}label{margin:2px 0}button,select,textarea{padding:6px;border-radius:6px}button{min-height:42px}main{display:flex;flex-direction:column;flex:1;min-height:0;gap:4px}section{padding:4px;margin:0;border-radius:6px}section:first-child{display:flex;flex-direction:column;flex:1;min-height:0}#messages{overflow:auto;flex:1;min-height:30px}textarea{min-height:64px;height:64px;max-height:20dvh}.actions{gap:4px;margin-top:2px}#status{min-height:18px;max-height:46px;overflow:auto;font-size:13px;margin:3px 0}.note{font-size:12px;margin:0}article{padding:5px 0}#choose{display:none}header{display:flex;flex-wrap:nowrap;align-items:center;gap:4px}header h1,header #mode,header label{display:none}header select{flex:1;min-width:0;padding:4px}header>span{font-size:11px;white-space:nowrap}button[aria-pressed=true]{background:#135b66;color:white}
 </style>
 <link rel="stylesheet" href="./reader-ui.css">
 <header><h1>Voice</h1><p id="mode">Mock conversations · nothing goes to Zulip</p><label for="agent">Talking to</label><select id="agent"></select><div class="actions"><button id="choose">Choose agent by voice</button></div></header>
@@ -22,6 +22,7 @@ import {resilientFetch,openDurableQueue} from './resilient-fetch.mjs';
 const el = Object.fromEntries(['agent','choose','messages','draft','status','dictate','stop','review','send','listen','quiet'].map(id=>[id,document.getElementById(id)]));
 const Recognition = window.isSecureContext && navigator.mediaDevices?.getUserMedia && window.MediaRecorder;
 const submissionId=()=>Array.from(crypto.getRandomValues(new Uint8Array(18)),byte=>byte.toString(16).padStart(2,'0')).join('');
+let resumeAutoplay=false;
 let generation=0, busy=false, pending=null, conversations=[], messages=[], recording=false, loaded=false, loading=false, drafts={}, mock=true, ready=false;
 const status = text=>{el.status.textContent=text;};
 let outbox=null,storageScope='pending',flushing=false,audioDraft=null;
@@ -166,7 +167,7 @@ async function pollEvents(){
 function controls(){el.dictate.disabled=!ready||!Recognition||busy||recording||!!pending||finishingSend;el.choose.disabled=!ready||!Recognition||busy||recording;el.stop.disabled=!recording||!captureReady;finishSend.disabled=!recording||!captureReady||finishingSend;el.review.disabled=!ready||busy||recording||!el.draft.value.trim()||finishingSend;el.send.disabled=!ready||busy||recording||!el.draft.value.trim()||finishingSend;el.agent.disabled=!ready||busy||finishingSend;el.draft.disabled=!ready||busy||recording||!!pending||finishingSend;el.listen.disabled=!ready||loading;cancelQueued.hidden=!pending;cancelQueued.disabled=busy;}
 function cancelAudio(keepPrepared=true){generation++;promptDone?.();promptDone=null;recording=false;captureReady=false;autoplaySpeaking=false;speaking=false;pauseButton.textContent='Play';readingPosition=null;audio.stop(keepPrepared);reader.clear();controls();}
 function speak(text,done,failed,started){speaking=true;const parts=splitSentences(text).flatMap(part=>part.match(/[\s\S]{1,1800}/g)||[]);function next(index){if(index===parts.length){speaking=false;done?.();return;}audio.speak(parts[index],()=>next(index+1),()=>{speaking=false;failed?.();},started);}next(0);}
-function startRecognition(confirm=false){cancelAudio();if(!Recognition)return;const token=generation,recipient=el.agent.value,base=el.draft.value.trim();audioDraft={id:submissionId(),agent:recipient,prefix:base,confirm};recording=true;controls();audio.record(async(result,meta)=>{if(confirm){if(token!==generation||recipient!==el.agent.value)return;await outbox.remove(result.id);const command=result.text.toLowerCase().replace(/[.!?,]/g,'').trim();if(command==='send')send();else status(command==='cancel'?'Draft kept. Nothing sent.':'Nothing sent. Say exactly “send”, or use the button.');}else{if(!storeTranscript(result.id,meta.agent,result.text,meta.prefix))throw new Error('Draft storage failed; recording retained.');await outbox.remove(result.id);controls();status('Transcript added to '+meta.agent+'.');}},()=>{controls();},{...audioDraft},()=>{recording=false;captureReady=false;controls();}).then(()=>{if(token===generation&&recording){captureReady=true;controls();}});}
+function startRecognition(confirm=false){cancelAudio();if(!Recognition)return;const token=generation,recipient=el.agent.value,base=el.draft.value.trim();audioDraft={id:submissionId(),agent:recipient,prefix:base,confirm};recording=true;controls();audio.record(async(result,meta)=>{if(confirm){if(token!==generation||recipient!==el.agent.value)return;await outbox.remove(result.id);const command=result.text.toLowerCase().replace(/[.!?,]/g,'').trim();if(command==='send')send();else status(command==='cancel'?'Draft kept. Nothing sent.':'Nothing sent. Say exactly “send”, or use the button.');}else{if(!storeTranscript(result.id,meta.agent,result.text,meta.prefix))throw new Error('Draft storage failed; recording retained.');await outbox.remove(result.id);controls();status('Transcript added to '+meta.agent+'.');}},()=>{controls();},{...audioDraft},()=>{recording=false;captureReady=false;controls();if(resumeAutoplay&&!finishingSend){resumeAutoplay=false;setTimeout(()=>{if(!autoplay)autoButton.onclick();},0);}}).then(()=>{if(token===generation&&recording){captureReady=true;controls();}});}
 function persistDrafts(){try{localStorage.setItem('voice-draft:'+storageScope,JSON.stringify({agent:el.agent.value,drafts,appliedRecordings:[...appliedRecordings]}));return true;}catch{status('Draft storage unavailable. Keep this page open until sending is resolved.');return false;}}
 function saveDraft(){drafts[el.agent.value]={text:el.draft.value,pending};return persistDrafts();}
 function storeTranscript(id,agent,text,prefix=''){
@@ -183,11 +184,10 @@ function render(){reader.render(messages.map((message,index)=>({...message,id:me
 async function flushOutbox(){
   if(!ready||!outbox||flushing||busy||recording||handsfree.state!=='off'||document.hidden)return;
   flushing=true;
-  busy=true;controls();
   try{
     const items=await outbox.list();if(items.error){status(items.error);return;}
     for(const item of items.data){
-      if(activeRecordings.has(item.id)||dictationClips.some(clip=>clip.metadata.id===item.id))continue;
+      if(busy||item.id===pending?.id||activeRecordings.has(item.id)||dictationClips.some(clip=>clip.metadata.id===item.id))continue;
       if(appliedRecordings.has(item.id)){await outbox.remove(item.id);continue;}
       if(recording||handsfree.state!=='off')break;
       if(!conversations.some(c=>c.id===item.agent)){status('Saved item awaits its original conversation: '+item.agent);continue;}
@@ -209,12 +209,12 @@ async function flushOutbox(){
       }
     }
     controls();
-  }finally{flushing=false;busy=false;controls();}
+  }finally{flushing=false;controls();}
 }
 async function load(anchor=readingPosition?.message.id){const recipient=el.agent.value;loaded=false;loading=true;controls();const result=await api('/api/messages?agent='+encodeURIComponent(recipient)+(Number.isSafeInteger(anchor)?'&anchor='+anchor:''));if(recipient!==el.agent.value)return;loading=false;if(result.error){status(result.error);controls();return;}messages=result.data;loaded=true;render();controls();}
 // 🧑 "talk to the interface to send messages ... which agent I am talking to"
 async function send(preserveAudio=false){if(!ready||busy||!el.draft.value.trim())return false;if(!preserveAudio)cancelAudio();const agent=el.agent.value,text=el.draft.value.trim();if(!pending||pending.agent!==agent||pending.text!==text)pending={id:submissionId(),agent,text};saveDraft();busy=true;controls();const submission={...pending};if(!outbox){busy=false;controls();status('Offline storage unavailable. Nothing sent.');return false;}const existing=await outbox.get(submission.id);if(!existing.data){const saved=await outbox.add({id:submission.id,agent,kind:'send',payload:submission});if(saved.error){busy=false;controls();status(saved.error);return false;}}const result=await api('/api/send',submission);busy=false;if(result.error){status(result.error);controls();return false;}await outbox.remove(submission.id);pending=null;el.draft.value='';saveDraft();status((mock?'Mock message':'Message')+' delivered to '+conversations.find(c=>c.id===agent).name+'.');await load();controls();return true;}
-el.dictate.onclick=()=>{handsfree.stop();startRecognition();};
+el.dictate.onclick=()=>{resumeAutoplay=autoplay||resumeAutoplay;handsfree.stop();startRecognition();};
 el.stop.onclick=()=>audio.finish();
 // 🧑 "after finishing dictating there should be an option to directly send so I don't need to click two things."
 finishSend.onclick=async()=>{
@@ -226,7 +226,7 @@ finishSend.onclick=async()=>{
     if(recording||dictationClips.length){status('Transcription is still pending. Your recording is saved; send after it finishes.');return;}
     if(recipient!==el.agent.value){status('Draft kept for '+recipient+'. Return there to send.');return;}
     await send();
-  }finally{finishingSend=false;controls();}
+  }finally{finishingSend=false;controls();if(resumeAutoplay){resumeAutoplay=false;if(!autoplay)autoButton.onclick();}}
 };
 el.quiet.onclick=()=>{handsfree.stop();cancelAudio(false);autoplay=false;autoButton.textContent='Auto-play: off';autoButton.setAttribute('aria-pressed','false');autoplayQueue.length=0;status('Audio stopped.');};
 el.review.remove();
@@ -254,6 +254,8 @@ if(!Recognition)status('Microphone capture is unavailable in this browser. You c
 controls();
 await pollEvents();
 compactControls=installCompactControls({composer,draft:el.draft,dictate:el.dictate});
+// 🧑 "get rid of it Merge the things inside the bottom. are think account configuration should be hidden behind another screen."
+{const header=document.querySelector('header'),dock=document.querySelector('.reader-dock');el.agent.style.cssText='width:auto;flex:1 1 30%;min-width:0;padding:4px';dock.prepend(el.agent);connection.style.alignSelf='center';dock.append(connection);for(const node of [...header.children])if(node!==el.agent&&node!==connection&&!['H1','LABEL'].includes(node.tagName)&&node.id!=='mode'&&!node.contains(el.choose))composer.append(node);header.hidden=true;}
 try{const saved=JSON.parse(localStorage.getItem('voice-position:'+storageScope));if(saved&&conversations.some(c=>c.id===saved.agent)){pausedPosition=saved;el.agent.value=saved.agent;el.draft.value=drafts[saved.agent]?.text||'';pending=drafts[saved.agent]?.pending||null;await load(saved.id);pauseButton.textContent='Play';}}catch{}
 setInterval(pollEvents,window.voiceBrowserOnly?5000:1500);
 window.addEventListener('voice-task-update',pollEvents);
