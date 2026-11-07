@@ -2,7 +2,7 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Voice · mock prototype</title>
+<title>Voice</title>
 <style>
 :root{font:18px system-ui;color:#162b37;background:#edf3f5}body{max-width:740px;margin:auto;padding:20px}header{position:sticky;top:0;background:#edf3f5;padding:12px 0}h1{font-size:1.6rem;margin:0}label{display:block;margin:16px 0 6px}button,select,textarea{font:inherit;border:1px solid #90a5af;border-radius:12px;padding:14px}button{background:white;cursor:pointer;min-height:52px}button.primary{background:#135b66;color:white}button:disabled{opacity:.45;cursor:default}select,textarea{width:100%;box-sizing:border-box}textarea{min-height:130px}section{background:white;border-radius:18px;padding:18px;margin-top:16px}.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}.note{font-size:.9rem;color:#46606e}#status{min-height:2.7em}article{border-bottom:1px solid #dae4e8;padding:12px 0;white-space:pre-wrap}article:last-child{border:0}#mode{color:#905400}button:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #10898c;outline-offset:3px}
 *{box-sizing:border-box}body{margin:0;padding:4px;height:100vh;height:100dvh;max-width:none;display:flex;flex-direction:column;gap:4px;font-size:16px}header{position:static;padding:0}h1{font-size:17px}#mode{font-size:12px;margin:0}label{margin:2px 0}button,select,textarea{padding:6px;border-radius:6px}button{min-height:42px}main{display:flex;flex-direction:column;flex:1;min-height:0;gap:4px}section{padding:4px;margin:0;border-radius:6px}section:first-child{display:flex;flex-direction:column;flex:1;min-height:0}#messages{overflow:auto;flex:1;min-height:30px}textarea{min-height:64px;height:64px;max-height:20dvh}.actions{gap:4px;margin-top:2px}#status{min-height:18px;max-height:46px;overflow:auto;font-size:13px;margin:3px 0}.note{font-size:12px;margin:0}article{padding:5px 0}#choose{display:none}button[aria-pressed=true]{background:#135b66;color:white}
@@ -226,7 +226,7 @@ controls();
 const mode=await api('/api/mode');
 if(mode.data){storageScope=mode.data.scope+':'+mode.data.mock;const opened=await openDurableQueue(storageScope);outbox=opened.data;if(opened.error)status(opened.error);}
 if(!window.isSecureContext)document.querySelector('.note').textContent='IP preview: use your keyboard microphone for dictation. Browser microphone and spoken confirmation are unavailable here. Mock messages only.';
-if(mode.data){mock=mode.data.mock;document.getElementById('mode').textContent=mock?'Mock conversations · nothing goes to Zulip':'Personal client · sends as your account';el.send.textContent=mock?'Send mock message':'Send message';document.title=mock?'Voice · mock prototype':'Voice';}
+if(mode.data){mock=mode.data.mock;document.getElementById('mode').textContent=mock?'Mock conversations · nothing goes to Zulip':'Personal client · sends as your account';el.send.textContent=mock?'Send mock message':'Send message';document.title=mock?'Voice':'Voice';}
 const result=mode.error?mode:await api('/api/conversations');
 if(result.error){status(result.error);el.agent.disabled=true;}
 else{
