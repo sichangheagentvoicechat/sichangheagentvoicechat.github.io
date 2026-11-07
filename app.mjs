@@ -1,13 +1,13 @@
 /** Wires the model, Zulip events, voice service, player, recorder and DOM. Behavior is described in `../docs/v2/design.md`. */
-import {createLog} from './log.mjs?v=fc63c301ed';
-import {createZulip, createEvents} from './zulip.mjs?v=fc63c301ed';
-import {createVoice} from './voice.mjs?v=fc63c301ed';
-import {createPlayer} from './player.mjs?v=fc63c301ed';
-import {createRecorder} from './recorder.mjs?v=fc63c301ed';
-import {createModel, parsed, itemsOf} from './model.mjs?v=fc63c301ed';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=fc63c301ed';
+import {createLog} from './log.mjs?v=a0cd81712e';
+import {createZulip, createEvents} from './zulip.mjs?v=a0cd81712e';
+import {createVoice} from './voice.mjs?v=a0cd81712e';
+import {createPlayer} from './player.mjs?v=a0cd81712e';
+import {createRecorder} from './recorder.mjs?v=a0cd81712e';
+import {createModel, parsed, itemsOf} from './model.mjs?v=a0cd81712e';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=a0cd81712e';
 
-const BUILD = 'v2.0-fc63c301ed';
+const BUILD = 'v2.0-a0cd81712e';
 const ACCOUNT_KEY = 'zulip-voice-account';
 const $ = id => document.getElementById(id);
 const store = {
@@ -131,9 +131,20 @@ function renderFeed() {
   if (!messages.length) { const d = document.createElement('div'); d.className = 'empty'; d.id = 'empty'; d.textContent = !current ? 'Choose an agent' : loading === current ? 'Loading…' : 'No messages yet'; feed.append(d); }
   for (const m of messages) appendMessage(m);
   for (const l of locals.get(current) ?? []) feed.append(localEl(l));
-  feed.scrollTop = feed.scrollHeight;
+  pinBottom();
   $('agent-name').textContent = current ?? 'Choose agent';
   highlight();
+}
+
+/** Keeps the feed at its end while layout settles (fonts, images, late renders), until the user scrolls. Never leaves scrollTop past the content. */
+let pinUntilMs = 0, pinTimer = 0;
+function pinBottom() {
+  const end = () => { feed.scrollTop = Math.max(0, feed.scrollHeight - feed.clientHeight); };
+  end();
+  pinUntilMs = Date.now() + 2000;
+  cancelAnimationFrame(pinTimer);
+  const tick = () => { if (Date.now() < pinUntilMs && Date.now() - userScrollMs > 300) { end(); pinTimer = requestAnimationFrame(tick); } };
+  pinTimer = requestAnimationFrame(tick);
 }
 
 /** Signed temporary link for an upload (one call, cached for 50 s). */
