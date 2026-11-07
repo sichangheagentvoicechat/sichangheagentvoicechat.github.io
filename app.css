@@ -98,12 +98,13 @@ button:disabled { opacity: .35; }
 dialog { border: 0; padding: 0; background: var(--bg); color: var(--fg); width: min(100vw, 560px); max-width: 100vw; max-height: 86dvh; margin: auto auto 0; border-radius: 20px 20px 0 0; }
 dialog.top { margin-top: 0; }
 dialog::backdrop { background: rgba(0,0,0,.45); }
-.sheet { padding: 12px 16px calc(16px + var(--safe-b)); display: flex; flex-direction: column; gap: 10px; max-height: 86dvh; overflow: auto; }
+.sheet { box-sizing: border-box; padding: 12px 16px calc(16px + var(--safe-b)); display: flex; flex-direction: column; gap: 10px; max-height: 86dvh; overflow: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+.sheet > * { flex-shrink: 0; }
 .sheet.full { height: 86dvh; }
 .sheet-head { display: flex; align-items: center; gap: 8px; }
 .sheet-head h2, #login h2 { margin: 0; font-size: 20px; flex: 1; }
 .sheet-head input { flex: 1; font: inherit; border: 0; background: var(--panel); border-radius: 12px; padding: 10px 14px; color: inherit; outline: 0; }
-#topics { list-style: none; margin: 0; padding: 0; overflow-y: auto; }
+#topics { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex-shrink: 1; min-height: 0; -webkit-overflow-scrolling: touch; }
 #topics li { display: flex; flex-direction: column; gap: 1px; padding: 11px 6px; border-bottom: 1px solid var(--line); position: relative; }
 #topics li[aria-current="true"] { background: var(--panel); border-radius: 10px; }
 #topics .name { font-weight: 600; }
@@ -118,7 +119,7 @@ button.wide.accent { background: var(--accent); color: var(--accent-fg); }
 button.wide.danger { color: var(--danger); }
 #login-form textarea { font: 14px ui-monospace, monospace; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); color: inherit; padding: 10px; }
 pre { margin: 0; font: 12px/1.35 ui-monospace, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
-#debug-status { background: var(--panel); padding: 10px; border-radius: 10px; }
-#debug-log { flex: 1; overflow: auto; user-select: text; -webkit-user-select: text; }
+#debug-status { background: var(--panel); padding: 10px; border-radius: 10px; max-height: 30dvh; overflow: auto; -webkit-overflow-scrolling: touch; }
+#debug-log { flex: 1 1 0; min-height: 120px; overflow: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; user-select: text; -webkit-user-select: text; }
 .debug-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .debug-actions button { padding: 9px 14px; border-radius: 10px; background: var(--panel); font-weight: 600; }
