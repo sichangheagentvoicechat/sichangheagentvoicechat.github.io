@@ -1,13 +1,13 @@
 /** Wires the model, Zulip events, voice service, player, recorder and DOM. Behavior is described in `../docs/v2/design.md`. */
-import {createLog} from './log.mjs?v=74f13b1b8e';
-import {createZulip, createEvents} from './zulip.mjs?v=74f13b1b8e';
-import {createVoice} from './voice.mjs?v=74f13b1b8e';
-import {createPlayer} from './player.mjs?v=74f13b1b8e';
-import {createRecorder} from './recorder.mjs?v=74f13b1b8e';
-import {createModel, parsed, itemsOf} from './model.mjs?v=74f13b1b8e';
-import {agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=74f13b1b8e';
+import {createLog} from './log.mjs?v=7fa95f516e';
+import {createZulip, createEvents} from './zulip.mjs?v=7fa95f516e';
+import {createVoice} from './voice.mjs?v=7fa95f516e';
+import {createPlayer} from './player.mjs?v=7fa95f516e';
+import {createRecorder} from './recorder.mjs?v=7fa95f516e';
+import {createModel, parsed, itemsOf} from './model.mjs?v=7fa95f516e';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=7fa95f516e';
 
-const BUILD = 'v2.0-74f13b1b8e';
+const BUILD = 'v2.0-7fa95f516e';
 const ACCOUNT_KEY = 'zulip-voice-account';
 const $ = id => document.getElementById(id);
 const store = {
@@ -136,10 +136,21 @@ function renderFeed() {
   highlight();
 }
 
+/** Signed temporary link for an upload (one call, cached for 50 s). */
+const attCache = new Map();
+async function attUrl(uri) {
+  const hit = attCache.get(uri);
+  if (hit && Date.now() - hit.at < 50000) return hit.r;
+  const z = await zulip.call('GET', uri.slice(1));
+  const r = z.ok ? {ok: true, url: new URL(z.data.url, cfg.site).href} : {ok: false};
+  if (r.ok) attCache.set(uri, {at: Date.now(), r});
+  return r;
+}
+
 function appendMessage(m) {
   feed.querySelector('#empty')?.remove();
   if (els.has(m.id)) return;
-  const node = model.isAgent(m) ? agentEl(m) : mineEl(m.content, 'sent', {});
+  const node = model.isAgent(m) ? agentEl(m, attUrl) : mineEl(m.content, 'sent', {}, attUrl);
   node.dataset.id = m.id;
   els.set(m.id, node);
   if (model.isMine(m)) {   // the server copy replaces the local bubble in the same tick: never two copies on screen
@@ -666,6 +677,8 @@ for (const [id, direction] of [['prev', -1], ['next', 1]]) {
 $('slower').onclick = () => setRate(rate - 0.1);
 $('faster').onclick = () => setRate(rate + 0.1);
 $('auto').onclick = () => setAutoplay(!autoplay);
+$('set-hide-att').checked = hideAllAttachments.on;
+$('set-hide-att').onchange = e => { hideAllAttachments.on = e.target.checked; if (e.target.checked) try { localStorage.removeItem('voice2-att-expanded'); } catch { /* ignore */ } store.set('voice2-hide-att', e.target.checked ? '1' : '0'); try { localStorage.setItem('voice2-hide-att', e.target.checked ? '1' : '0'); } catch { /* ignore */ } renderFeed(); };
 $('set-auto').onchange = e => setAutoplay(e.target.checked);
 $('set-rate').oninput = e => setRate(+e.target.value);
 $('settings').onclick = () => { $('account-text').textContent = `${cfg.email} · ${cfg.site} · ${BUILD}`; $('settings-sheet').showModal(); };
