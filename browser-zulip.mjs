@@ -10,18 +10,23 @@ export function createBrowserZulip(config,{fetch:network=globalThis.fetch,storag
   const authorization='Basic '+btoa(String.fromCharCode(...new TextEncoder().encode(config.email+':'+config.key)));
   let conversations=[];
   let serverOffsetMs=null;
+  let retryAtMs=0;
+  function observeRateLimit(response,data={}){if(response.status===429){const reset=Number(response.headers.get('x-ratelimit-reset')),after=Number(response.headers.get('retry-after')||data.retry_after);retryAtMs=Number.isFinite(reset)&&reset>now()/1000?reset*1000:now()+(after>0?after:60)*1000;}return retryAtMs;}
+  function checkCooldown(){if(now()<retryAtMs)throw new Error(`HTTP 429: rate limited; retry in ${Math.ceil((retryAtMs-now())/1000)} seconds.`);}
   const latestIds=new Map();
   const pending=new Map();
   async function request(method,path,fields={}){
+    if(now()<retryAtMs)return {error:`${method} /api/v1/${path}: HTTP 429; rate limited, retry in ${Math.ceil((retryAtMs-now())/1000)} seconds.`,status:429,retryAtMs,uncertain:false};
     const query=new URLSearchParams(fields);
     try{
       const response=await network(site.origin+'/api/v1/'+path+(method==='GET'?'?'+query:''),{method,redirect:'error',headers:{Authorization:authorization,...(method==='GET'?{}:{'Content-Type':'application/x-www-form-urlencoded'})},body:method==='GET'?undefined:query,signal:AbortSignal.timeout(15000)});
       const serverMs=Date.parse(response.headers.get('date')||'');
       if(Number.isFinite(serverMs))serverOffsetMs=serverMs-now();
       const data=await response.json();
-      if(!response.ok||data.result!=='success')return {error:'Zulip rejected the request.',uncertain:response.status>=500};
+      observeRateLimit(response,data);
+      if(!response.ok||data.result!=='success')return {error:`${method} /api/v1/${path}: HTTP ${response.status}: ${data.msg||data.code||response.statusText}${response.status===429?`; rate limited, retry in ${Math.ceil((retryAtMs-now())/1000)} seconds.`:''}`,status:response.status,retryAtMs,uncertain:response.status>=500};
       return {data};
-    }catch{return {error:'Zulip connection failed or timed out.',uncertain:true};}
+    }catch(error){return {error:`${method} /api/v1/${path}: ${error.name}: ${error.message}`,uncertain:true};}
   }
   async function refresh(){
     const result=await request('GET',`users/me/${config.streamId}/topics`);
@@ -60,7 +65,8 @@ export function createBrowserZulip(config,{fetch:network=globalThis.fetch,storag
     record={...input,startedSeconds:Math.floor(now()/1000),serverSeconds:serverOffsetMs===null?null:Math.floor((now()+serverOffsetMs)/1000),baselineId:latestIds.get(input.agent)||0};
     try{storage.setItem(key,JSON.stringify(record));}catch{return {error:'Cannot save delivery receipt. No message sent.'};}
     const result=await request('POST','messages',{type:'stream',to:String(config.streamId),topic:input.agent,content:input.text});
-    if(result.error||!Number.isSafeInteger(result.data?.id))return uncertain;
+    if(result.error){if(!result.uncertain){storage.removeItem(key);return result;}return {...uncertain,error:result.error+' Delivery uncertain; saved submission will be reconciled before retry.'};}
+    if(!Number.isSafeInteger(result.data?.id))return uncertain;
     return complete(record,result.data.id);
   }
   function complete(record,messageId){
@@ -111,5 +117,5 @@ export function createBrowserZulip(config,{fetch:network=globalThis.fetch,storag
     }
     return {error:'Not found'};
   }
-  return {config,request,async verify(){const r=await request('GET','users/me');return r.error?r:r.data.user_id===config.humanId&&r.data.is_bot===false?{data:true}:{error:'Credentials must belong to the configured human.'};},async fetch(path,options){const r=await dispatch(path,options);return new Response(JSON.stringify(r.error?r:r.data),{status:r.error?409:200,headers:{'Content-Type':'application/json'}});}};
+return {config,request,checkCooldown,observeRateLimit,async verify(){const r=await request('GET','users/me');return r.error?r:r.data.user_id===config.humanId&&r.data.is_bot===false?{data:true}:{error:'Credentials must belong to the configured human.'};},async fetch(path,options){const r=await dispatch(path,options);return new Response(JSON.stringify(r.error?r:r.data),{status:r.error?(r.status||409):200,headers:{'Content-Type':'application/json'}});}};
 }

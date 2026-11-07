@@ -44,6 +44,7 @@ const audio=createAudio({status,clipsChanged:clips=>{dictationClips=clips;clipLi
   return {text:data.text,id};
   }finally{activeRecordings.delete(id);}
 }});let speaking=false;
+window.startVoicePreload?.(data=>audio.cachePrepared(data)).catch(()=>status('Voice preloading disconnected; retrying in the background.'));
 const speed=document.createElement('span'),slower=document.createElement('button'),faster=document.createElement('button');
 slower.textContent='−';faster.textContent='+';slower.setAttribute('aria-label','Slower playback');faster.setAttribute('aria-label','Faster playback');
 function showSpeed(){speed.textContent=audio.getRate().toFixed(1)+'×';slower.disabled=audio.getRate()<=0.5;faster.disabled=audio.getRate()>=3;}
@@ -163,7 +164,7 @@ async function pollEvents(){
   }finally{if(autoplay)await queueUnread();polling=false;playQueued();}
 }
 function controls(){el.dictate.disabled=!ready||!Recognition||busy||recording||!!pending||finishingSend;el.choose.disabled=!ready||!Recognition||busy||recording;el.stop.disabled=!recording||!captureReady;finishSend.disabled=!recording||!captureReady||finishingSend;el.review.disabled=!ready||busy||recording||!el.draft.value.trim()||finishingSend;el.send.disabled=!ready||busy||recording||!el.draft.value.trim()||finishingSend;el.agent.disabled=!ready||busy||finishingSend;el.draft.disabled=!ready||busy||recording||!!pending||finishingSend;el.listen.disabled=!ready||loading;cancelQueued.hidden=!pending;cancelQueued.disabled=busy;}
-function cancelAudio(){generation++;promptDone?.();promptDone=null;recording=false;captureReady=false;autoplaySpeaking=false;speaking=false;pauseButton.textContent='Play';readingPosition=null;audio.stop();reader.clear();controls();}
+function cancelAudio(keepPrepared=true){generation++;promptDone?.();promptDone=null;recording=false;captureReady=false;autoplaySpeaking=false;speaking=false;pauseButton.textContent='Play';readingPosition=null;audio.stop(keepPrepared);reader.clear();controls();}
 function speak(text,done,failed,started){speaking=true;const parts=splitSentences(text).flatMap(part=>part.match(/[\s\S]{1,1800}/g)||[]);function next(index){if(index===parts.length){speaking=false;done?.();return;}audio.speak(parts[index],()=>next(index+1),()=>{speaking=false;failed?.();},started);}next(0);}
 function startRecognition(confirm=false){cancelAudio();if(!Recognition)return;const token=generation,recipient=el.agent.value,base=el.draft.value.trim();audioDraft={id:submissionId(),agent:recipient,prefix:base,confirm};recording=true;controls();audio.record(async(result,meta)=>{if(confirm){if(token!==generation||recipient!==el.agent.value)return;await outbox.remove(result.id);const command=result.text.toLowerCase().replace(/[.!?,]/g,'').trim();if(command==='send')send();else status(command==='cancel'?'Draft kept. Nothing sent.':'Nothing sent. Say exactly “send”, or use the button.');}else{if(!storeTranscript(result.id,meta.agent,result.text,meta.prefix))throw new Error('Draft storage failed; recording retained.');await outbox.remove(result.id);controls();status('Transcript added to '+meta.agent+'.');}},()=>{controls();},{...audioDraft},()=>{recording=false;captureReady=false;controls();}).then(()=>{if(token===generation&&recording){captureReady=true;controls();}});}
 function persistDrafts(){try{localStorage.setItem('voice-draft:'+storageScope,JSON.stringify({agent:el.agent.value,drafts,appliedRecordings:[...appliedRecordings]}));return true;}catch{status('Draft storage unavailable. Keep this page open until sending is resolved.');return false;}}
@@ -177,7 +178,7 @@ function storeTranscript(id,agent,text,prefix=''){
   if(el.agent.value===agent){el.draft.value=drafts[agent].text;pending=drafts[agent].pending;}
   return true;
 }
-async function api(path,body){try{const result=await resilientFetch(path,{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined},{onState:networkState});if(result.error)return{error:'Connection lost. Your draft is kept; retry uses the same submission ID.'};const response=result.response,data=await response.json();return response.ok?{data}:{error:data.error||'Request failed'};}catch{return{error:'Connection lost. Your draft is kept; retry uses the same submission ID.'};}}
+async function api(path,body){try{const result=await resilientFetch(path,{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined},{onState:networkState});if(result.error)return{error:result.error};const response=result.response,data=await response.json();return response.ok?{data}:{error:data.error||'Request failed'};}catch(error){return{error:path+': '+error.message};}}
 function render(){reader.render(messages.map((message,index)=>({...message,id:message.id??'history-'+index,text:message.sender==='agent'?spokenText(message.text):message.text})),conversations.find(c=>c.id===el.agent.value)?.name);}
 async function flushOutbox(){
   if(!ready||!outbox||flushing||busy||recording||handsfree.state!=='off'||document.hidden)return;
@@ -227,12 +228,12 @@ finishSend.onclick=async()=>{
     await send();
   }finally{finishingSend=false;controls();}
 };
-el.quiet.onclick=()=>{handsfree.stop();cancelAudio();autoplay=false;autoButton.textContent='Auto-play: off';autoButton.setAttribute('aria-pressed','false');autoplayQueue.length=0;status('Audio stopped.');};
+el.quiet.onclick=()=>{handsfree.stop();cancelAudio(false);autoplay=false;autoButton.textContent='Auto-play: off';autoButton.setAttribute('aria-pressed','false');autoplayQueue.length=0;status('Audio stopped.');};
 el.review.remove();
 el.send.onclick=()=>{handsfree.stop();send();};
 el.listen.onclick=async()=>{cancelAudio();const token=generation;await load();if(token!==generation||!loaded)return;const replies=messages.filter(m=>m.sender==='agent');function next(index){if(index<replies.length)readMessage(replies[index],0,()=>next(index+1));}next(0);};
 el.draft.oninput=()=>{cancelAudio();pending=null;saveDraft();controls();};
-el.agent.onchange=()=>{handsfree.stop();cancelAudio();const draft=drafts[el.agent.value];pending=draft?.pending||null;el.draft.value=draft?.text||'';saveDraft();status('Talking to '+conversations.find(c=>c.id===el.agent.value).name+'.');load();controls();};
+el.agent.onchange=()=>{handsfree.stop();cancelAudio(false);const draft=drafts[el.agent.value];pending=draft?.pending||null;el.draft.value=draft?.text||'';saveDraft();status('Talking to '+conversations.find(c=>c.id===el.agent.value).name+'.');load();controls();};
 document.addEventListener('visibilitychange',()=>{if(document.hidden){saveDraft();cancelAudio();}});
 document.querySelector('.note').textContent='Tap Dictate, then Finish. Review your draft and tap Send. Keep the page open for playback.';
 controls();
@@ -249,12 +250,12 @@ else{
   try{const saved=JSON.parse(localStorage.getItem('voice-draft:'+storageScope)||sessionStorage.getItem('voice-draft:'+mock));if(saved&&conversations.some(c=>c.id===saved.agent)){drafts=saved.drafts||{};for(const id of saved.appliedRecordings||[])appliedRecordings.add(id);el.agent.value=saved.agent;el.draft.value=drafts[saved.agent]?.text||'';pending=drafts[saved.agent]?.pending||null;}}catch{}
   await load();
 }
-if(!Recognition)status('Browser speech recognition unavailable. Use your keyboard microphone to dictate.');
+if(!Recognition)status('Microphone capture is unavailable in this browser. You can use keyboard dictation.');
 controls();
 await pollEvents();
 compactControls=installCompactControls({composer,draft:el.draft,dictate:el.dictate});
 try{const saved=JSON.parse(localStorage.getItem('voice-position:'+storageScope));if(saved&&conversations.some(c=>c.id===saved.agent)){pausedPosition=saved;el.agent.value=saved.agent;el.draft.value=drafts[saved.agent]?.text||'';pending=drafts[saved.agent]?.pending||null;await load(saved.id);pauseButton.textContent='Play';}}catch{}
-setInterval(pollEvents,1500);
+setInterval(pollEvents,window.voiceBrowserOnly?5000:1500);
 setInterval(flushOutbox,10000);
 window.addEventListener('online',()=>{if(!ready)location.reload();else{flushOutbox();pollEvents();}});
 if(window.visualViewport)window.visualViewport.addEventListener('resize',()=>{document.body.style.height=window.visualViewport.height+'px';});

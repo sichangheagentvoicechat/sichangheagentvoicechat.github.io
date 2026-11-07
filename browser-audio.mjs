@@ -1,7 +1,7 @@
 // 🧑 "Use the server to do STT and TTS instead of the client, i.e., send audio around"
 import {resilientFetch} from './resilient-fetch.mjs';
 export function createAudio({status,transcribe,clipsChanged=()=>{}}){
-  const player=new Audio();let generation=0,controller=null,objectURL=null,unlocked=false,current=null,recordingSession=null;
+  const gesturePlayer=new Audio();let player=gesturePlayer,generation=0,controller=null,objectURL=null,unlocked=false,permissionPending=false,current=null,recordingSession=null;
   const prepared=new Map();
   let preparing=0;const prepareQueue=[];
   function pumpPrepared(){while(preparing<2&&prepareQueue.length){const job=prepareQueue.shift();if(job.signal.aborted){job.resolve({error:'Cancelled'});continue;}preparing++;prepare(job.text,job.signal).then(job.resolve,error=>job.resolve({error:error.message})).finally(()=>{preparing--;pumpPrepared();});}}
@@ -40,16 +40,23 @@ export function createAudio({status,transcribe,clipsChanged=()=>{}}){
     for(const [text,item] of prepared)if(!wanted.has(text)){item.controller.abort();item.promise.then(release);prepared.delete(text);}
     for(const text of wanted)if(!prepared.has(text)){const controller=new AbortController();prepared.set(text,{controller,promise:prepareAhead(text,controller.signal)});}
   }
+  function cachePrepared(data){
+    if(!data.text||!data.audioURL||data.text.length>9000){release(data);return;}
+    const existing=prepared.get(data.text);if(existing?.relayId===data.relayId||current?.relayId===data.relayId)return;if(existing){existing.controller.abort();existing.promise.then(release);prepared.delete(data.text);}
+    while(prepared.size>=12||[...prepared.keys()].reduce((sum,text)=>sum+text.length,0)+data.text.length>9000){const key=prepared.keys().next().value,item=prepared.get(key);item.controller.abort();item.promise.then(release);prepared.delete(key);}
+    const preload=new Audio();preload.preload='auto';preload.src=data.audioURL;prepared.set(data.text,{relayId:data.relayId,controller:new AbortController(),promise:Promise.resolve({...data,preload})});
+  }
   let rate=1;try{rate=Number(localStorage.getItem('voice-speed'))||1;}catch{}
   function setRate(value){rate=Math.round(Math.max(0.5,Math.min(3,value))*10)/10;player.playbackRate=rate;try{localStorage.setItem('voice-speed',String(rate));}catch{}}
   function unlock(){
+    if(permissionPending){permissionPending=false;player=gesturePlayer;player.removeAttribute('src');unlocked=false;}
     if(unlocked||player.src)return;unlocked=true;player.onended=null;player.onerror=null;
     const buffer=new ArrayBuffer(46),view=new DataView(buffer);
     for(const [offset,text] of [[0,'RIFF'],[8,'WAVE'],[12,'fmt '],[36,'data']])for(let i=0;i<text.length;i++)view.setUint8(offset+i,text.charCodeAt(i));
     view.setUint32(4,38,true);view.setUint32(16,16,true);view.setUint16(20,1,true);view.setUint16(22,1,true);view.setUint32(24,24000,true);view.setUint32(28,48000,true);view.setUint16(32,2,true);view.setUint16(34,16,true);view.setUint32(40,2,true);
     objectURL=URL.createObjectURL(new Blob([buffer],{type:'audio/wav'}));player.src=objectURL;player.play().catch(()=>{});
   }
-  function stop(){generation++;controller?.abort();clearPrepared();player.pause();player.removeAttribute('src');release(current);current=null;if(objectURL)URL.revokeObjectURL(objectURL);objectURL=null;finish();}
+  function stop(keepPrepared=false){generation++;controller?.abort();if(!keepPrepared)clearPrepared();player.pause();player.removeAttribute('src');release(current);current=null;if(objectURL)URL.revokeObjectURL(objectURL);objectURL=null;finish();}
   async function speak(text,done,failed,started){
     const token=generation;controller=new AbortController();
     try{
@@ -60,14 +67,15 @@ export function createAudio({status,transcribe,clipsChanged=()=>{}}){
       if(result.error)throw new Error(result.error);
       if(token!==generation){release(result);return;}
       current={...result,done,failed,text};
-      if(objectURL)URL.revokeObjectURL(objectURL);objectURL=result.blob?URL.createObjectURL(result.blob):null;player.src=result.audioURL||objectURL;
+      if(objectURL)URL.revokeObjectURL(objectURL);objectURL=result.blob?URL.createObjectURL(result.blob):null;
+      if(result.preload){player.pause();player=result.preload;}else player.src=result.audioURL||objectURL;
       player.playbackRate=rate;
       player.onloadedmetadata=null;
       player.onended=()=>{if(token===generation){release(current);current=null;done?.();}};
       player.onerror=()=>{if(token===generation){release(current);current=null;status('Audio playback failed. Tap a sentence to retry.');failed?.();}};
-      await player.play();
+      try{await player.play();}catch(error){if(error.name!=='NotAllowedError'||player===gesturePlayer)throw error;const previous=player;player=gesturePlayer;player.src=result.audioURL||objectURL;player.playbackRate=rate;player.onended=previous.onended;player.onerror=previous.onerror;previous.onended=null;previous.onerror=null;await player.play();}
       if(token===generation)started?.();
-    }catch(error){if(token!==generation)return;release(current);current=null;status('Audio: '+error.message);failed?.();}
+    }catch(error){if(token!==generation)return;if(error.name==='NotAllowedError'&&current){const item=current;current=null;permissionPending=true;cachePrepared(item);status('Playback needs permission. Tap Play to continue.');}else{release(current);current=null;status('Audio: '+error.message);}failed?.();}
   }
   // 🧑 "allow another dictation while the previous one is processing"
   async function record(done,failed,metadata,stopped=()=>{}){
@@ -103,5 +111,5 @@ export function createAudio({status,transcribe,clipsChanged=()=>{}}){
   }
   function finish(){if(recordingSession){recordingSession.ended=true;if(recordingSession.capture?.state==='recording')recordingSession.capture.stop();}}
   function pause(){generation++;controller?.abort();clearPrepared();player.pause();release(current);current=null;}
-  return {speak,record,finish,stop,unlock,setRate,pause,prefetch,retryClip,elapsed:()=>current?player.currentTime:0,getRate:()=>rate};
+  return {speak,record,finish,stop,unlock,setRate,pause,prefetch,cachePrepared,retryClip,elapsed:()=>current?player.currentTime:0,getRate:()=>rate};
 }
