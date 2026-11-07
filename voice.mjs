@@ -11,6 +11,7 @@ export function createVoice({zulip, cfg, log}) {
   let ackTimer = null;
 
   /** Feed every event message; consumes this service's results. */
+  /** `arrivedMs` is the result's server time, so backfilled clips' expired signed URLs get re-minted. */
   function onMessage(message) {
     if (message.stream_id !== cfg.relayStreamId || message.sender_id !== cfg.botId) return;
     let body;
@@ -19,7 +20,7 @@ export function createVoice({zulip, cfg, log}) {
     const waiter = pending.get(body.id);
     if (waiter) { pending.delete(body.id); waiter(body); }
     else if (body.proactive && body.audioURL) {
-      prepared.set(`${body.messageId}:${body.sentence}`, {...body, arrivedMs: Date.now()});
+      prepared.set(`${body.messageId}:${body.sentence}`, {...body, arrivedMs: Math.min(Date.now(), message.timestamp * 1000)});
       for (const [key, entry] of prepared) if (Date.now() - entry.arrivedMs > PREPARED_TTL_MS) prepared.delete(key);
     }
   }

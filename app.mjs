@@ -1,13 +1,13 @@
 /** Wires the model, Zulip events, voice service, player, recorder and DOM. Behavior is described in `../docs/v2/design.md`. */
-import {createLog} from './log.mjs?v=e7878dbf3a';
-import {createZulip, createEvents} from './zulip.mjs?v=e7878dbf3a';
-import {createVoice} from './voice.mjs?v=e7878dbf3a';
-import {createPlayer} from './player.mjs?v=e7878dbf3a';
-import {createRecorder} from './recorder.mjs?v=e7878dbf3a';
-import {createModel, parsed, itemsOf} from './model.mjs?v=e7878dbf3a';
-import {agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=e7878dbf3a';
+import {createLog} from './log.mjs?v=6723571d69';
+import {createZulip, createEvents} from './zulip.mjs?v=6723571d69';
+import {createVoice} from './voice.mjs?v=6723571d69';
+import {createPlayer} from './player.mjs?v=6723571d69';
+import {createRecorder} from './recorder.mjs?v=6723571d69';
+import {createModel, parsed, itemsOf} from './model.mjs?v=6723571d69';
+import {agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=6723571d69';
 
-const BUILD = 'v2.0-e7878dbf3a';
+const BUILD = 'v2.0-6723571d69';
 const ACCOUNT_KEY = 'zulip-voice-account';
 const $ = id => document.getElementById(id);
 const store = {
@@ -71,6 +71,12 @@ async function ensureRelayMuted(zulip, relayStreamId) {
   const subs = await zulip.call('GET', 'users/me/subscriptions');
   const sub = subs.data?.subscriptions.find(s => s.stream_id === relayStreamId);
   if (!sub) { log('app', 'relay channel not subscribed'); return false; }
+  // 🧑 "I'm still getting push&email notification for the ping channel and email for stt"
+  // Posting auto-follows a topic, and followed topics notify even in a muted channel; muting each relay topic stops that.
+  if (!store.get('voice2-relay-topics-muted', false)) {
+    const muted = await Promise.all(['ping', 'stt', 'tts', 'log', 'ack'].map(topic => zulip.call('POST', 'user_topics', {stream_id: relayStreamId, topic, visibility_policy: 1})));
+    if (muted.every(r => r.ok)) store.set('voice2-relay-topics-muted', true);
+  }
   const props = ['push_notifications', 'desktop_notifications', 'audible_notifications', 'email_notifications', 'wildcard_mentions_notify'];
   if (sub.is_muted && props.every(p => sub[p] === false)) return true;
   log('app', 'muting relay channel notifications');

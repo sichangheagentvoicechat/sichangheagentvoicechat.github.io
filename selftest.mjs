@@ -1,7 +1,7 @@
 /** On-phone checks for what desktop tests cannot show. Each step returns a detail string or throws; results are copyable. */
-import {createZulip, createEvents} from './zulip.mjs?v=e7878dbf3a';
-import {createVoice} from './voice.mjs?v=e7878dbf3a';
-import {createRecorder} from './recorder.mjs?v=e7878dbf3a';
+import {createZulip, createEvents} from './zulip.mjs?v=6723571d69';
+import {createVoice} from './voice.mjs?v=6723571d69';
+import {createRecorder} from './recorder.mjs?v=6723571d69';
 
 const cfg = JSON.parse(localStorage.getItem('zulip-voice-account') || 'null');
 const results = [];
