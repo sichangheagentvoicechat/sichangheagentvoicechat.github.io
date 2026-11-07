@@ -34,13 +34,13 @@ const appliedRecordings=new Set();
 const connection=document.createElement('span');connection.id='connection';connection.style.fontSize='12px';document.querySelector('header').append(connection);
 const networkState=({state})=>{connection.textContent=state==='connected'?'':state==='retrying'?'Reconnecting…':'Offline · drafts kept';};
 const clipList=document.createElement('div');document.getElementById('draft').after(clipList);
-const audio=createAudio({status,clipsChanged:clips=>{dictationClips=clips;clipList.replaceChildren(...clips.map((clip,index)=>{const row=document.createElement('div');row.textContent='Recording '+(index+1)+': '+clip.state;if(clip.error){row.textContent+=' · '+clip.error;const retry=document.createElement('button');retry.textContent='Retry';retry.onclick=()=>audio.retryClip(clip.id);row.append(retry);}return row;}));},transcribe:async(blob,signal,meta)=>{
+const audio=createAudio({status,clipsChanged:clips=>{dictationClips=clips;clipList.replaceChildren();const failed=clips.filter(c=>c.error),busyClips=clips.length-failed.length;if(!clips.length)return;const row=document.createElement('div');row.style.cssText='font-size:12px;display:flex;gap:6px;align-items:center';row.textContent=(busyClips?busyClips+' transcribing':'')+(busyClips&&failed.length?' · ':'')+(failed.length?failed.length+' failed':'');if(failed.length){const retry=document.createElement('button');retry.textContent='Retry';retry.style.cssText='min-height:0;padding:2px 8px';retry.onclick=()=>failed.forEach(c=>audio.retryClip(c.id));row.append(retry);}clipList.append(row);},transcribe:async(blob,signal,meta)=>{
   const id=meta.id;
   activeRecordings.add(id);
   try{
   if(!outbox)throw new Error('Offline storage unavailable. Recording cannot be saved.');
   const existing=await outbox.get(id);if(!existing.data){const saved=await outbox.add({id,kind:'audio',agent:meta.agent,blob,prefix:meta.prefix,confirmation:meta.confirm});if(saved.error)throw new Error(saved.error);}
-  const result=await resilientFetch('/api/stt',{method:'POST',body:blob,signal},{retries:0,timeoutMs:10000,onState:networkState});
+  const result=await resilientFetch('/api/stt',{method:'POST',body:blob,signal},{retries:1,timeoutMs:30000,onState:networkState});
   if(result.error)throw new Error(result.error);const data=await result.response.json();if(!result.response.ok)throw new Error(data.error);
   return {text:data.text,id};
   }finally{activeRecordings.delete(id);}
@@ -198,7 +198,7 @@ async function flushOutbox(){
         if(drafts[item.agent]?.pending?.id===item.id){drafts[item.agent]={text:'',pending:null};if(el.agent.value===item.agent){pending=null;el.draft.value='';}saveDraft();}
         status('Queued message delivered to '+item.agent+'.');
       }else{
-        const result=await resilientFetch('/api/stt',{method:'POST',body:item.blob},{retries:0,timeoutMs:10000,onState:networkState});
+        const result=await resilientFetch('/api/stt',{method:'POST',body:item.blob},{retries:1,timeoutMs:30000,onState:networkState});
         if(result.error){status(result.error);break;}const data=await result.response.json();if(!result.response.ok){status(data.error);break;}
         if(!item.confirmation&&!item.command){
           const text=item.handsfree?data.text.replace(/\bresume[\s.!?,;:]+auto[\s-]*play\b[\s.!?,;:]*$/i,'').trim():data.text;

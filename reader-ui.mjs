@@ -64,9 +64,11 @@ export function installCompactControls({composer,draft,dictate}) {
   let touchStart=null;
   dock.style.touchAction='none';
   // 🧑 "the controls does not shrink down when I swipe it"
+  // 🧑 "The bottom portion of the controls do not scroll." The open panel scrolls; a downward swipe collapses it only when already at its top.
+  composer.style.overflowY='auto';composer.style.maxHeight='60dvh';composer.style.overscrollBehavior='contain';
   for(const surface of [dock,composer]){
-    surface.addEventListener('touchstart',event=>{const touch=event.touches[0];touchStart={x:touch.clientX,y:touch.clientY};},{passive:true});
-    surface.addEventListener('touchend',event=>{if(!touchStart)return;const touch=event.changedTouches[0],dy=touch.clientY-touchStart.y,dx=touch.clientX-touchStart.x;touchStart=null;if(Math.abs(dy)>25&&Math.abs(dy)>Math.abs(dx)){event.preventDefault();open(dy<0);}},{passive:false});
+    surface.addEventListener('touchstart',event=>{const touch=event.touches[0];touchStart={x:touch.clientX,y:touch.clientY,top:composer.scrollTop};},{passive:true});
+    surface.addEventListener('touchend',event=>{if(!touchStart)return;const touch=event.changedTouches[0],dy=touch.clientY-touchStart.y,dx=touch.clientX-touchStart.x,top=touchStart.top;touchStart=null;if(Math.abs(dy)<=25||Math.abs(dy)<=Math.abs(dx))return;if(surface===composer&&(dy<0||top>0||composer.scrollTop>0||dy<60))return;event.preventDefault();open(dy<0);},{passive:false});
     surface.addEventListener('touchcancel',()=>{touchStart=null;},{passive:true});
   }
   const messages=document.getElementById('messages');
