@@ -1,6 +1,6 @@
 /** DOM builders for messages and agent rows. No state. */
-import {inlineHtml} from './text.mjs?v=6723571d69';
-import {parsed} from './model.mjs?v=6723571d69';
+import {inlineHtml} from './text.mjs?v=99e9a5886e';
+import {parsed} from './model.mjs?v=99e9a5886e';
 
 const el = (tag, className, html) => { const e = document.createElement(tag); if (className) e.className = className; if (html !== undefined) e.innerHTML = html; return e; };
 const textEl = (tag, className, text) => { const e = el(tag, className); e.textContent = text; return e; };
@@ -35,10 +35,11 @@ export const setUnread = (root, unread) => root.classList.toggle('unread', unrea
 
 /** The human's message bubble; `state` is `sent`, `sending` or `failed`. */
 export function mineEl(text, state, handlers) {
-  const root = el('article', `msg mine ${state === 'sent' ? '' : state}`);
+  const root = el('article', `msg mine ${state === 'sent' ? '' : state === 'queued' ? 'sending' : state}`);
   root.append(textEl('div', 'bubble', text));
   const note = el('div', 'state');
   if (state === 'sending') note.textContent = 'Sending…';
+  if (state === 'queued') note.textContent = 'Waiting for connection…';
   if (state === 'failed') {
     note.append('Not sent');
     for (const [label, fn] of [['Retry', handlers.retry], ['Delete', handlers.discard]]) { const b = textEl('button', '', label); b.type = 'button'; b.onclick = fn; note.append(b); }

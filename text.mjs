@@ -9,6 +9,19 @@ export function splitSentences(text) {
   return text.match(/[^.!?]+[.!?]*(?:\s+|$)|[.!?]+/g) || [text];
 }
 
+/** Removes `pending item created:` / `deleted:` / `resolved:` headings and the `- ...` bullets that follow them. */
+function dropPendingFooters(lines) {
+  const out = [];
+  let skipping = false;
+  for (const line of lines) {
+    if (/^pending items?\s+\w+.*:\s*$/i.test(line.trim())) { skipping = true; continue; }
+    if (skipping && /^\s*[-*]\s+/.test(line)) continue;
+    skipping = false;
+    out.push(line);
+  }
+  return out;
+}
+
 /** Splits an agent message into `{title, body, switchTo}`: the `[task] title` first line and `[switch: TASK]` lines are not body text. */
 export function parseAgentMessage(content) {
   let switchTo = null;
@@ -17,7 +30,7 @@ export function parseAgentMessage(content) {
     if (match) switchTo = match[1].trim().replace(/\.md$/, '');
     return !match;
   });
-  const text = lines.join('\n');
+  const text = dropPendingFooters(lines).join('\n');
   const first = text.match(/^\[[^\]\n]+\][^\n]*(?:\n|$)/);
   return {title: first ? first[0].trim() : '', body: (first ? text.slice(first[0].length) : text).trim(), switchTo};
 }

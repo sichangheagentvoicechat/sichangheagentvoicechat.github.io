@@ -1,144 +1,168 @@
-/** On-phone checks for what desktop tests cannot show. Each step returns a detail string or throws; results are copyable. */
-import {createZulip, createEvents} from './zulip.mjs?v=6723571d69';
-import {createVoice} from './voice.mjs?v=6723571d69';
-import {createRecorder} from './recorder.mjs?v=6723571d69';
+/**
+ * One-tap self-test: runs every check in sequence, never waits forever, and sends one complete report to the server.
+ * Every await goes through `w(label, promise, ms)`, so a hang is reported with what it was waiting for.
+ * A 100 ms timer measures main-thread stalls; they are listed in the report.
+ */
+import {createZulip, createEvents} from './zulip.mjs?v=99e9a5886e';
+import {createVoice} from './voice.mjs?v=99e9a5886e';
+import {createRecorder} from './recorder.mjs?v=99e9a5886e';
 
 const cfg = JSON.parse(localStorage.getItem('zulip-voice-account') || 'null');
-const results = [];
 const out = [];
 const log = (cat, msg) => out.push(`${new Date().toISOString().slice(11, 23)} ${cat} ${msg}`);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const SILENCE = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
-let zulip, voice, events, evState = [];
-if (cfg) {
-  zulip = createZulip(cfg, log);
-  voice = createVoice({zulip, cfg, log});
-}
-const need = () => { if (!cfg?.relayStreamId) throw Error('No stored account; open the app and sign in first'); };
-const clip = async text => { const r = await voice.tts(text); if (!r.ok) throw Error(r.error); return r.clip; };
+const MAIN_STALL_MS = 500;
+const $ = id => document.getElementById(id);
+
+const stalls = [];
+let lastTick = performance.now();
+setInterval(() => { const now = performance.now(), lag = now - lastTick - 100; lastTick = now; if (lag > MAIN_STALL_MS && document.visibilityState === 'visible') { stalls.push({at: Date.now(), ms: Math.round(lag)}); log('stall', `main thread blocked ~${Math.round(lag)}ms`); } }, 100);
+
+const zulip = cfg?.relayStreamId ? createZulip(cfg, log) : null;
+const voice = zulip && createVoice({zulip, cfg, log});
+let events = null, evState = [];
+const ensureEvents = () => events ??= (() => {
+  const e = createEvents({zulip, log, eventTypes: ['message'], onInit() {}, onEvent: ev => { if (ev.type === 'message') voice.onMessage(ev.message); }, onState: i => { if (evState.at(-1) !== i.state) evState.push(i.state); }});
+  e.start();
+  return e;
+})();
+
+/** `await` with a deadline: rejects `HANG waiting for <label> (<ms>ms)`. */
+const w = (label, promise, ms = 15000) => { let timer; return Promise.race([promise, new Promise((_, rej) => { timer = setTimeout(() => rej(Error(`HANG waiting for ${label} (${ms}ms)`)), ms); })]).finally(() => clearTimeout(timer)); };
+const T = t0 => Math.round(performance.now() - t0) + 'ms';
+const until = (label, pred, ms) => w(label, (async () => { while (!pred()) await sleep(150); })(), ms);
 const audioEl = () => Object.assign(new Audio(), {preload: 'auto'});
-const playUrl = (el, url) => new Promise((resolve, reject) => {
-  el.src = url; el.onended = () => resolve(performance.now()); el.onerror = () => reject(Error('media error ' + el.error?.code));
-  el.play().catch(reject);
-});
-const T = (t0) => Math.round(performance.now() - t0) + 'ms';
-const ensureEvents = () => {
-  if (events) return;
-  events = createEvents({zulip, log, eventTypes: ['message'], onInit() {}, onEvent: e => { if (e.type === 'message') voice.onMessage(e.message); }, onState: i => { if (evState.at(-1) !== i.state) evState.push(i.state); }});
-  events.start();
-};
-/** Posts a ping and resolves with ms until its result arrives over the event queue. */
-const pingViaEvents = async () => { const t0 = performance.now(); const r = await voice.ping(); if (!r.ok) throw Error(r.error); return T(t0); };
-const waitState = async (pred, ms, what) => { for (const t0 = Date.now(); Date.now() - t0 < ms; await sleep(200)) if (pred()) return; throw Error('timeout: ' + what); };
-let gestureEls;
-if (cfg?.relayStreamId) ensureEvents();
+const playUrl = (el, url, label) => w(label, new Promise((resolve, reject) => { el.src = url; el.onended = () => resolve(performance.now()); el.onerror = () => reject(Error('media error ' + el.error?.code)); el.play().catch(reject); }), 30000);
+const clip = async (text, label) => { const r = await w(label, voice.ttsBatch([text]), 30000); if (!r.ok) throw Error(label + ': ' + r.error); return r.clip; };
+const urlOf = async c => (await voice.clipUrl(c)).url;
+let els = [audioEl(), audioEl()];
+
+/** Shows a countdown prompt and resolves true when `detected()` becomes true, false (skip) when it runs out. */
+async function prompt(text, seconds, detected) {
+  for (let left = seconds; left > 0; left--) {
+    $('prompt').textContent = `${text} (${left}s, or it is skipped)`;
+    if (detected()) { $('prompt').textContent = ''; return true; }
+    await sleep(1000);
+  }
+  $('prompt').textContent = '';
+  return false;
+}
 
 const steps = [
-  {name: '1. Account and relay ping', hint: 'Zulip login plus a round trip to the voice service.', async run() {
-    need();
-    const me = await zulip.call('GET', 'users/me');
-    if (!me.ok) throw Error(me.error);
-    const t0 = performance.now(); const p = await voice.ping();
-    if (!p.ok) throw Error(p.error);
-    return `user ${me.data.user_id}; ping ${T(t0)}; stt=${p.workers.stt} tts=${p.workers.tts}; relay up ${p.uptimeS}s`;
-  }},
-  {name: '2. Audio unlock after tap', hint: 'Primes two audio elements in this tap, then plays on them 3 s later with no tap. Must be allowed.', async run() {
-    need();
-    gestureEls = [audioEl(), audioEl()];
-    for (const el of gestureEls) { el.src = SILENCE; await el.play(); el.pause(); }
-    const c = await clip('Audio unlock check.');
-    const url = (await voice.clipUrl(c)).url;
-    await sleep(3000);
-    const t0 = performance.now();
-    await playUrl(gestureEls[1], url);
-    return `second element played without a tap; ${T(t0)}`;
-  }},
-  {name: '3. Speech round trip and playback', hint: 'Asks the server for speech and plays it. You should hear a sentence.', async run() {
-    need();
-    const t0 = performance.now();
-    const c = await clip('This is a speech round trip test from the server.');
-    const ready = T(t0);
-    const el = gestureEls?.[0] ?? audioEl();
-    const t1 = performance.now();
-    await playUrl(el, (await voice.clipUrl(c)).url);
-    return `audio ready ${ready}; played ${T(t1)}; relay durationMs=${c.durationMs}`;
-  }},
-  {name: '4. Two clips, second element stall', hint: 'Plays clip A while loading clip B on a second element, as the old player did. Reports the longest freeze of A and the gap to B.', async run() {
-    need();
-    const [a, b] = await Promise.all([clip('The first clip is playing while the second one loads on another element.'), clip('Now the second clip follows the first.')]);
-    const [ua, ub] = [(await voice.clipUrl(a)).url, (await voice.clipUrl(b)).url];
-    const A = gestureEls?.[0] ?? audioEl(), B = gestureEls?.[1] ?? audioEl();
-    let last = performance.now(), maxFreeze = 0, lastT = -1;
-    const timer = setInterval(() => { const now = performance.now(); if (A.currentTime !== lastT) { lastT = A.currentTime; last = now; } else if (!A.ended && !A.paused) maxFreeze = Math.max(maxFreeze, now - last); }, 100);
-    setTimeout(() => { B.src = ub; B.load(); }, 1000);
-    const endA = await playUrl(A, ua);
-    clearInterval(timer);
-    B.src = ub;
-    const startB = performance.now();
-    await playUrl(B, ub);
-    const loadWhilePlayingFreeze = Math.round(maxFreeze);
-    return `A froze up to ${loadWhilePlayingFreeze}ms while B loaded (over 700 = stall); next clip started within ${Math.round(startB - endA)}ms of A ending`;
-  }, failIf: d => /froze up to (\d+)/.test(d) && +d.match(/froze up to (\d+)/)[1] > 700},
-  {name: '5. Microphone, recording and transcription', hint: 'Allow the microphone, then say a short sentence and pause. Records 8 s.', async run() {
-    need();
-    const clips = [], texts = [];
+  {name: 'Microphone, recording and transcription (say a sentence)', async run() {
+    const clips = [];
+    // Runs first: iOS only starts the audio context inside the Start tap, so the recorder must start synchronously.
     const rec = createRecorder({log, onClip: b => clips.push(b), onLevel() {}});
     const t0 = performance.now();
-    const s = await rec.start();
+    const s = await w('microphone permission and start (allow the prompt)', rec.start(), 60000);
     if (!s.ok) throw Error(s.error);
     const permMs = T(t0);
-    await sleep(8000);
-    rec.stop();
+    await until('event queue live', () => events.info().state === 'live', 20000);
+    $('prompt').textContent = 'Recording 8 s: say a sentence now';
+    await sleep(8000); rec.stop(); $('prompt').textContent = '';
     if (!clips.length) throw Error('recorded no speech (mic started in ' + permMs + ')');
-    for (const c of clips) { const t1 = performance.now(); const r = await voice.stt(c); if (!r.ok) throw Error(r.error); texts.push(`"${r.text}" (${T(t1)})`); }
+    const texts = [];
+    for (const c of clips) { const t1 = performance.now(); const r = await w('speech to text', voice.stt(c), 40000); if (!r.ok) throw Error(r.error); texts.push(`"${r.text}" (${T(t1)})`); }
     return `mic start ${permMs}; ${clips.length} clip(s) ${clips.map(c => c.size + 'B').join(',')}; ${texts.join(' ')}`;
   }},
-  {name: '6. Reconnect after airplane mode', hint: 'Tap Run, then turn airplane mode ON for ~10 s and OFF again. Waits up to 90 s.', async run() {
-    need(); ensureEvents(); evState = [];
-    await waitState(() => events.info().state === 'live', 20000, 'connection live before test');
-    await waitState(() => evState.some(s => s !== 'live'), 60000, 'app noticing the network loss (did you enable airplane mode?)');
-    const t0 = performance.now();
-    await waitState(() => events.info().state === 'live', 60000, 'live again after the network returned');
-    const back = T(t0);
-    return `live again ${back} after network returned; ping over event queue ${await pingViaEvents()}`;
+  {name: 'Account and relay ping', async run() {
+    const me = await w('Zulip users/me', zulip.call('GET', 'users/me'));
+    if (!me.ok) throw Error(me.error);
+    await until('event queue live', () => events.info().state === 'live', 20000);
+    const t0 = performance.now(); const p = await w('relay ping result', voice.ping(), 20000);
+    if (!p.ok) throw Error(p.error);
+    return `ping ${T(t0)}; stt=${p.workers.stt} tts=${p.workers.tts}; relay up ${p.uptimeS}s`;
   }},
-  {name: '7. Background / lock resume', hint: 'Tap Run, then lock the phone (or switch app) for 20 s and come back. Waits up to 120 s.', async run() {
-    need(); ensureEvents();
-    await waitState(() => events.info().state === 'live', 20000, 'connection live before test');
-    await waitState(() => document.visibilityState === 'hidden', 60000, 'page being hidden (lock or switch app)');
-    await waitState(() => document.visibilityState === 'visible', 120000, 'coming back');
+  {name: 'Audio unlock (play 3 s after the tap, no new tap)', async run() {
+    const c = await clip('Audio unlock check.', 'TTS clip');
+    const url = await urlOf(c);
+    await sleep(3000);
     const t0 = performance.now();
-    await waitState(() => events.info().state === 'live' && events.info().lastOkAgoMs < 4000, 30000, 'event loop live after resume');
-    return `event loop live ${T(t0)} after return; ping over event queue ${await pingViaEvents()}`;
+    await playUrl(els[1], url, 'element 2 playback');
+    return `second element played without a tap; ${T(t0)}`;
+  }},
+  {name: 'Speech round trip and playback', async run() {
+    const t0 = performance.now();
+    const c = await clip('This is a speech round trip test from the server.', 'TTS clip');
+    const ready = T(t0), t1 = performance.now();
+    await playUrl(els[0], await urlOf(c), 'element 1 playback');
+    return `audio ready ${ready}; played ${T(t1)}; durationMs=${c.durationMs}`;
+  }},
+  {name: 'Two clips: does loading the second stall the first?', async run() {
+    const [a, b] = await w('two TTS clips', Promise.all([clip('The first clip is playing while the second one loads on another element.', 'clip A'), clip('Now the second clip follows the first.', 'clip B')]), 40000);
+    const [ua, ub] = [await urlOf(a), await urlOf(b)];
+    let last = performance.now(), maxFreeze = 0, lastT = -1;
+    const timer = setInterval(() => { const now = performance.now(); if (els[0].currentTime !== lastT) { lastT = els[0].currentTime; last = now; } else if (!els[0].ended && !els[0].paused) maxFreeze = Math.max(maxFreeze, now - last); }, 100);
+    setTimeout(() => { els[1].src = ub; els[1].load(); }, 1000);
+    const endA = await playUrl(els[0], ua, 'clip A playback').finally(() => clearInterval(timer));
+    els[1].src = ub;
+    const startB = performance.now();
+    await playUrl(els[1], ub, 'clip B playback');
+    const detail = `first clip froze up to ${Math.round(maxFreeze)}ms while the second loaded; next clip started within ${Math.round(startB - endA)}ms of its end`;
+    if (maxFreeze > 700) throw Error('STALL ' + detail);
+    return detail;
+  }},
+  {name: 'Reconnect after airplane mode', optional: true, async run() {
+    await until('event queue live', () => events.info().state === 'live', 20000);
+    evState = [];
+    if (!await prompt('Turn airplane mode ON for a few seconds, then OFF', 40, () => evState.some(s => s !== 'live'))) return 'SKIP: network loss not detected';
+    const t0 = performance.now();
+    await until('event queue live again after the network returned', () => events.info().state === 'live', 60000);
+    const back = T(t0);
+    const p = performance.now(); const r = await w('relay ping over the event queue', voice.ping(), 20000);
+    if (!r.ok) throw Error(r.error);
+    return `live again ${back} after network returned; ping ${T(p)}; states ${evState.join('>')}`;
+  }},
+  {name: 'Resume after lock or app switch', optional: true, async run() {
+    if (!await prompt('Lock the phone or switch app for 15 s, then come back', 40, () => document.visibilityState === 'hidden')) return 'SKIP: page was not hidden';
+    await until('coming back to the page', () => document.visibilityState === 'visible', 180000);
+    const t0 = performance.now();
+    await until('event queue live after resume', () => events.info().state === 'live' && events.info().lastOkAgoMs < 4000, 30000);
+    const back = T(t0), p = performance.now();
+    const r = await w('relay ping over the event queue', voice.ping(), 20000);
+    if (!r.ok) throw Error(r.error);
+    return `event loop live ${back} after return; ping ${T(p)}`;
   }},
 ];
 
-const root = document.getElementById('steps');
-steps.forEach((step, i) => {
-  const el = document.createElement('div'); el.className = 'step';
-  el.innerHTML = `<h2></h2><small></small><button>Run</button><div class="res"></div>`;
-  el.querySelector('h2').textContent = step.name; el.querySelector('small').textContent = step.hint;
-  const btn = el.querySelector('button'), res = el.querySelector('.res');
-  btn.onclick = async () => {
-    btn.disabled = true; res.className = 'res run'; res.textContent = 'running…';
-    const t0 = performance.now();
-    let r;
-    try { const d = await step.run(); r = {pass: !step.failIf?.(d), detail: d}; }
-    catch (e) { r = {pass: false, detail: e.message}; }
-    r.ms = Math.round(performance.now() - t0); r.name = step.name; results[i] = r;
-    log('step', `${step.name}: ${r.pass ? 'PASS' : 'FAIL'} ${r.detail}`);
-    voice?.sendLog('selftest', report()).then(x => { res.dataset.sent = x.ok ? 'sent' : 'unsent'; });
-    res.className = 'res ' + (r.pass ? 'pass' : 'fail');
-    res.textContent = `${r.pass ? 'PASS' : 'FAIL'} (${r.ms}ms)\n${r.detail}`;
-    btn.disabled = false; btn.textContent = 'Run again';
-  };
-  root.append(el);
-});
-const report = () => `voice self-test ${new Date().toISOString()}\n${navigator.userAgent}\n` + steps.map((s, i) => results[i] ? `${results[i].pass ? 'PASS' : 'FAIL'} ${s.name} (${results[i].ms}ms) ${results[i].detail}` : `SKIP ${s.name}`).join('\n') + '\n\n' + out.slice(-60).join('\n');
-document.getElementById('all').onclick = async e => {
-  const text = report();
-  voice?.sendLog('selftest-manual', text);
-  try { await navigator.clipboard.writeText(text); e.target.textContent = 'Copied'; } catch { prompt('Copy:', text); }
-  setTimeout(() => { e.target.textContent = 'Copy / send results'; }, 2000);
-};
-window.__selftest = {results, out};
+const results = [];
+const report = final => `voice self-test ${final ? 'FINAL' : 'partial'} ${new Date().toISOString()}\n${navigator.userAgent}\n` +
+  steps.map((s, i) => results[i] ? `${results[i].status} ${s.name} (${results[i].ms}ms) ${results[i].detail}` : `PENDING ${s.name}`).join('\n') +
+  `\nmain-thread stalls >${MAIN_STALL_MS}ms: ${stalls.length ? stalls.map(s => s.ms + 'ms').join(',') : 'none'}\n\n` + out.slice(-60).join('\n');
+let sending = Promise.resolve();
+/** Sends are chained, so the last (complete) report always arrives last. */
+const send = (label, text) => sending = sending.then(async () => { for (let n = 0; n < 3; n++) { const r = await voice.sendLog(label, text); if (r.ok) return r; await sleep(1000); } return {ok: false}; });
+
+const list = $('steps');
+const nodes = steps.map(s => { const el = document.createElement('div'); el.className = 'step'; el.innerHTML = '<h2></h2><div class="res">waiting</div>'; el.querySelector('h2').textContent = s.name; list.append(el); return el.querySelector('.res'); });
+
+async function start() {
+  $('start').disabled = true;
+  // Gesture work first: prime audio elements inside the tap.
+  for (const el of els) { el.src = SILENCE; el.play().then(() => el.pause(), () => {}); }
+  if (!voice) { $('summary').textContent = 'No stored account: open the app and sign in first.'; return; }
+  ensureEvents();
+  for (const [i, s] of steps.entries()) {
+    nodes[i].className = 'res run'; nodes[i].textContent = 'running…';
+    const t0 = performance.now(); let r;
+    try { const detail = await w(s.name, s.run(), 240000); r = {status: detail.startsWith('SKIP') ? 'SKIP' : 'PASS', detail}; }
+    catch (e) { r = {status: /^HANG/.test(e.message) ? 'HANG' : 'FAIL', detail: e.message}; }
+    r.ms = Math.round(performance.now() - t0); results[i] = r;
+    log('step', `${s.name}: ${r.status} ${r.detail}`);
+    nodes[i].className = 'res ' + (r.status === 'PASS' ? 'pass' : r.status === 'SKIP' ? 'run' : 'fail');
+    nodes[i].textContent = `${r.status} (${r.ms}ms)\n${r.detail}`;
+    $('prompt').textContent = '';
+    if (r.status === 'HANG' || r.status === 'FAIL') send('selftest-partial', report(false));
+  }
+  const bad = results.filter(r => r.status === 'HANG' || r.status === 'FAIL').length;
+  $('summary').textContent = `${bad ? bad + ' problem(s)' : 'All checks passed'}; stalls: ${stalls.length}. Sending report…`;
+  const text = report(true);
+  window.__selftest.text = text;
+  const sent = await send('selftest-final', text);
+  $('summary').textContent = `${bad ? bad + ' problem(s)' : 'All checks passed'}; stalls: ${stalls.length}. Report ${sent.ok ? 'sent to server' : 'NOT sent (use Copy)'}.`;
+  window.__selftest.done = true;
+}
+$('start').onclick = start;
+$('copy').onclick = async e => { const text = window.__selftest.text ?? report(false); try { await navigator.clipboard.writeText(text); e.target.textContent = 'Copied'; } catch { window.prompt('Copy:', text); } setTimeout(() => { e.target.textContent = 'Copy'; }, 2000); };
+window.__selftest = {results, out, stalls};

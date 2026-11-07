@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="color-scheme" content="light dark">
 <title>Voice</title>
-<link rel="stylesheet" href="app.css?v=6723571d69">
+<link rel="stylesheet" href="app.css?v=99e9a5886e">
 </head>
 <body>
 <div id="app" hidden>
@@ -19,6 +19,8 @@
     <button id="settings" class="icon" aria-label="Settings"><svg viewBox="0 0 24 24" class="i"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg></button>
   </header>
   <main id="feed" aria-label="Conversation"></main>
+  <button id="jump" hidden>Jump to playing</button>
+  <div id="net" hidden>No connection. Messages and audio will resume by themselves.</div>
   <div id="banner" hidden></div>
   <footer id="dock">
     <div id="transport">
@@ -80,6 +82,6 @@
   <button class="wide accent">Connect</button>
 </form></dialog>
 
-<script type="module" src="app.mjs?v=6723571d69"></script>
+<script type="module" src="app.mjs?v=99e9a5886e"></script>
 </body>
 </html>

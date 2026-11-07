@@ -1,13 +1,13 @@
 /** Wires the model, Zulip events, voice service, player, recorder and DOM. Behavior is described in `../docs/v2/design.md`. */
-import {createLog} from './log.mjs?v=6723571d69';
-import {createZulip, createEvents} from './zulip.mjs?v=6723571d69';
-import {createVoice} from './voice.mjs?v=6723571d69';
-import {createPlayer} from './player.mjs?v=6723571d69';
-import {createRecorder} from './recorder.mjs?v=6723571d69';
-import {createModel, parsed, itemsOf} from './model.mjs?v=6723571d69';
-import {agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=6723571d69';
+import {createLog} from './log.mjs?v=99e9a5886e';
+import {createZulip, createEvents} from './zulip.mjs?v=99e9a5886e';
+import {createVoice} from './voice.mjs?v=99e9a5886e';
+import {createPlayer} from './player.mjs?v=99e9a5886e';
+import {createRecorder} from './recorder.mjs?v=99e9a5886e';
+import {createModel, parsed, itemsOf} from './model.mjs?v=99e9a5886e';
+import {agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=99e9a5886e';
 
-const BUILD = 'v2.0-6723571d69';
+const BUILD = 'v2.0-99e9a5886e';
 const ACCOUNT_KEY = 'zulip-voice-account';
 const $ = id => document.getElementById(id);
 const store = {
@@ -107,13 +107,14 @@ if (cache) { model.restore(cache); current ??= cache.current; }
 
 const player = createPlayer({
   log, voice,
-  onItemStart(item) { log('audio', `start ${item.key}`); nowMsgId = item.msgId; nowIdx = item.idx; highlight(); if (follow) scrollToNow(); setMediaSession(); },
+  onItemStart(item) { log('audio', `start ${item.key}`); if (burst?.pending) return; store.set('voice2-pos', {topic: current, msgId: item.msgId, idx: item.idx}); const before = model.unreadAgentMessages(current).filter(m => m.id < item.msgId).map(m => m.id); if (before.length) markRead(before); nowMsgId = item.msgId; nowIdx = item.idx; highlight(); $('jump').hidden = follow; if (follow) scrollToNow(); setMediaSession(); },
   onItemEnd(item) {
     if (!item.last) return;
+    store.set('voice2-pos', null);
     markRead([item.msgId]);
     if (pendingSwitch?.msgId === item.msgId) runSwitch();
   },
-  onIdle() { nowMsgId = null; highlight(); if (pendingSwitch) runSwitch(); maybeAutoplay(); },
+  onIdle() { nowMsgId = null; highlight(); $('jump').hidden = true; if (pendingSwitch) runSwitch(); maybeAutoplay(); },
   onStatus: renderTransport,
 });
 player.setRate(rate);
@@ -141,8 +142,13 @@ function appendMessage(m) {
   const node = model.isAgent(m) ? agentEl(m) : mineEl(m.content, 'sent', {});
   node.dataset.id = m.id;
   els.set(m.id, node);
-  const firstLocal = feed.querySelector('[data-local]');
-  feed.insertBefore(node, firstLocal);
+  if (model.isMine(m)) {   // the server copy replaces the local bubble in the same tick: never two copies on screen
+    const local = (locals.get(m.subject) ?? []).find(l => l.localId === m.local_message_id || (l.text === m.content && l.state !== 'failed'));
+    if (local) { local.node?.replaceWith(node); locals.set(m.subject, locals.get(m.subject).filter(x => x !== local)); return; }
+  }
+  // keep message order by id even when older messages arrive late (history or reconnect), so nothing looks re-sent
+  const later = [...feed.querySelectorAll('.msg[data-id]')].find(n => +n.dataset.id > m.id);
+  feed.insertBefore(node, later ?? feed.querySelector('[data-local]'));
 }
 
 function localEl(l) {
@@ -159,11 +165,12 @@ function highlight() {
   for (const s of node ?? []) if (+s.dataset.from <= nowIdx && nowIdx <= +s.dataset.to) s.classList.add('now');
 }
 
-function scrollToNow() {
+function scrollToNow(force = false) {
   const target = feed.querySelector('.s.now');
   if (!target) return;
   const box = feed.getBoundingClientRect(), r = target.getBoundingClientRect();
-  if (r.top < box.top + 60 || r.bottom > box.bottom - 20) feed.scrollTo({top: feed.scrollTop + r.top - box.top - box.height * 0.3, behavior: 'smooth'});
+  if (!force && r.top >= box.top + 60 && r.bottom <= box.bottom - 20) return;
+  feed.scrollTo({top: feed.scrollTop + r.top - box.top - box.height * 0.3, behavior: force || Math.abs(r.top - box.top) > box.height * 3 ? 'auto' : 'smooth'});
 }
 
 function renderUnread() {
@@ -199,7 +206,7 @@ async function loadEarlier() {
 
 /** Latest messages of the whole channel, so the agent list can show a snippet per agent. */
 async function loadRecent() {
-  const r = await zulip.call('GET', 'messages', {narrow: [{operator: 'stream', operand: cfg.streamId}], anchor: 'newest', num_before: 100, num_after: 0, apply_markdown: false});
+  const r = await zulip.call('GET', 'messages', {narrow: [{operator: 'stream', operand: cfg.streamId}], anchor: 'newest', num_before: 60, num_after: 0, apply_markdown: false});
   if (r.ok) for (const m of r.data.messages) model.add(m);
 }
 
@@ -220,9 +227,23 @@ async function onInit(state, isResync) {
     if (!isResync) renderFeedKeepingScroll();
   }
   await loadRecent();
+  if (current) catchUpReadMark(unread.get(current) ?? 0);
   renderUnread();
   maybeAutoplay();
   persist();
+}
+
+/** Forward-only read state on load: everything older than the newest read agent message is read (one call, also covers backlog beyond the loaded history). */
+async function catchUpReadMark(serverUnread) {
+  const agents = model.agentMessages(current);
+  const newestRead = agents.filter(m => m.flags?.includes('read')).at(-1);
+  if (!newestRead) return;
+  const earlier = agents.filter(m => m.id < newestRead.id && !m.flags?.includes('read'));
+  if (!earlier.length && serverUnread <= model.unreadAgentMessages(current).length) return;
+  model.markRead(earlier.map(m => m.id));
+  renderUnread();
+  const r = await zulip.call('POST', 'messages/flags/narrow', {anchor: newestRead.id, num_before: 1000, num_after: 0, narrow: topicQuery(current), op: 'add', flag: 'read'});
+  log('read', `watermark at ${newestRead.id}: ${r.ok ? 'ok' : r.error}`);
 }
 
 function renderFeedKeepingScroll() { const stick = atBottom(); if (!els.size || !feed.querySelector('.msg')) renderFeed(); if (stick) feed.scrollTop = feed.scrollHeight; $('agent-name').textContent = current ?? 'Choose agent'; }
@@ -244,8 +265,6 @@ function onTaskMessage(m) {
   const stick = atBottom();
   if (m.subject === current) {
     appendMessage(m);
-    const mine = [...(locals.get(current) ?? [])].find(l => l.localId === m.local_message_id);
-    if (mine) removeLocal(mine);
     if (stick || model.isMine(m)) feed.scrollTop = feed.scrollHeight;
     if (model.isAgent(m)) onNewAgentMessage(m);
   }
@@ -270,7 +289,7 @@ function onNewAgentMessage(m) {
 const msgIndex = id => model.agentMessages(current).findIndex(m => m.id === id);
 
 function playFrom(m, idx = 0) {
-  follow = true;
+  setFollow(true);
   player.unlock();
   const later = model.agentMessages(current).filter(x => x.id > m.id);
   player.play([...itemsOf(m, idx), ...later.flatMap(x => itemsOf(x))], 0);
@@ -281,20 +300,47 @@ function maybeAutoplay() {
   const unread = model.unreadAgentMessages(current);
   const speakable = unread.filter(m => itemsOf(m).length);
   markRead(unread.filter(m => !itemsOf(m).length).map(m => m.id));
-  if (!speakable.length) { hideBanner(); return; }
+  const pos = store.get('voice2-pos', null);
+  const resumable = pos?.topic === current && model.find(pos.msgId) && itemsOf(model.find(pos.msgId), pos.idx).length;
+  if (!speakable.length && !resumable) { hideBanner(); return; }
   if (!player.isUnlocked()) { showBanner(`Tap to listen (${speakable.length} unread)`, 'tap', () => { player.unlock(); maybeAutoplay(); }); return; }
   hideBanner();
+  const at = pos?.topic === current ? model.find(pos.msgId) : null;
+  if (at && itemsOf(at, pos.idx).length) {   // resume exactly where listening stopped, then continue forward
+    player.play([...itemsOf(at, pos.idx), ...model.agentMessages(current).filter(m => m.id > at.id && !m.flags?.includes('read')).flatMap(m => itemsOf(m))], 0);
+    return;
+  }
   player.play(speakable.flatMap(m => itemsOf(m)), 0);
 }
 
-function jump(direction) {
+const RESTART_AFTER_S = 2;
+const SKIP_DEBOUNCE_MS = 350;
+let burst = null;   // taps within SKIP_DEBOUNCE_MS of each other: `{msgId, idx, pending, timer}`
+/**
+ * Steps one spoken chunk (one whole message when `whole`). The first tap plays at once; further taps in quick succession move the
+ * highlighted target instantly and only the final target is loaded after the debounce. Previous restarts the chunk if it played >2 s.
+ */
+function jump(direction, whole = false) {
   const agents = model.agentMessages(current);
-  if (!agents.length) return toast('No agent messages here');
-  let i = nowMsgId !== null ? msgIndex(nowMsgId) : direction > 0 ? -1 : agents.length;
-  if (direction < 0 && nowMsgId !== null && nowIdx > 0) i += 1;
-  const target = agents[i + direction];
+  const flat = agents.flatMap(m => itemsOf(m));
+  if (!flat.length) return toast('No agent messages here');
+  const from = burst ?? (nowMsgId === null ? null : {msgId: nowMsgId, idx: nowIdx});
+  const at = from ? flat.findIndex(it => it.msgId === from.msgId && it.idx === from.idx) : -1;
+  let target;
+  if (whole) {
+    const mi = from ? agents.findIndex(m => m.id === from.msgId) : -1;
+    const m = agents[from ? mi + direction + (direction < 0 && from.idx > 0 && !burst ? 1 : 0) : (direction > 0 ? 0 : agents.length - 1)];
+    target = m && itemsOf(m)[0];
+  } else if (at < 0) target = direction > 0 ? flat[0] : flat.at(-1);
+  else if (direction < 0 && !burst && player.currentTime() > RESTART_AFTER_S) target = flat[at];
+  else target = flat[at + direction];
   if (!target) return toast(direction > 0 ? 'No later messages' : 'No earlier messages');
-  playFrom(target, 0);
+  const play = () => playFrom(agents.find(m => m.id === target.msgId), target.idx);
+  if (burst) clearTimeout(burst.timer);
+  const pending = !!burst;
+  burst = {msgId: target.msgId, idx: target.idx, pending};
+  if (pending) { nowMsgId = target.msgId; nowIdx = target.idx; highlight(); setFollow(true); scrollToNow(); } else play();
+  burst.timer = setTimeout(() => { const b = burst; burst = null; if (b.pending) play(); }, SKIP_DEBOUNCE_MS);
 }
 
 function togglePlay() {
@@ -313,7 +359,7 @@ function togglePlay() {
 function renderTransport({status, error}) {
   $('play').dataset.state = status;
   $('play').setAttribute('aria-label', status === 'playing' ? 'Pause' : 'Play');
-  if (status === 'error') showBanner(`Audio failed: ${error}. Retrying…`, 'err', () => player.retry());
+  if (status === 'error') showBanner(`Waiting for audio (${error}). Retrying by itself…`, 'warn', () => player.retry());
   else if (status === 'blocked') showBanner('Tap to resume audio', 'tap', () => player.unlock());
   else if (bannerKind === 'err') hideBanner();
   $('dock').classList.toggle('min', status === 'idle' && scrolledAway);
@@ -331,8 +377,15 @@ function setMediaSession() {
 // ---- read flags ----
 let readQueue = new Set(store.get('voice2-readq', []));
 let flushing = false;
+/** Read state only moves forward: reading message N also reads every earlier unread agent message of that topic. */
 function markRead(ids) {
   if (!ids.length) return;
+  const all = new Set(ids);
+  for (const id of ids) {
+    const m = model.find(id);
+    if (m) for (const earlier of model.unreadAgentMessages(m.subject)) if (earlier.id < id) all.add(earlier.id);
+  }
+  ids = [...all];
   model.markRead(ids);
   for (const id of ids) readQueue.add(id);
   store.set('voice2-readq', [...readQueue]);
@@ -392,7 +445,7 @@ function openPicker() {
 const draftEl = $('draft');
 let dict = null;
 let localCounter = 0;
-function autosize() { draftEl.style.height = 'auto'; draftEl.style.height = Math.min(draftEl.scrollHeight, innerHeight * 0.4) + 'px'; $('send').disabled = !dict && !draftEl.value.trim(); }
+function autosize() { draftEl.style.height = 'auto'; $('composer').classList.toggle('tall', !!dict || draftEl.value.length > 28 || draftEl.value.includes('\n')); draftEl.style.height = Math.min(draftEl.scrollHeight, innerHeight * 0.4) + 'px'; $('send').disabled = !dict && !draftEl.value.trim(); }
 function saveDraft() { if (current) store.set('voice2-draft:' + current, draftEl.value); }
 draftEl.addEventListener('input', () => { autosize(); saveDraft(); });
 draftEl.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !matchMedia('(pointer: coarse)').matches) { e.preventDefault(); $('composer').requestSubmit(); } });
@@ -428,9 +481,20 @@ function onClip(blob) {
   syncDictation();
 }
 
+/** Transcribes `part`, retrying with backoff while the network is bad; the clip stays pending (shown as `…`) meanwhile. */
 function transcribe(part, owner) {
   part.state = 'pending';
-  voice.stt(part.blob).then(r => {
+  (async () => {
+    let r;
+    for (let attempt = 0; attempt < 12; attempt++) {
+      r = await voice.stt(part.blob);
+      if (r.ok) break;
+      log('stt', `clip attempt ${attempt + 1} failed: ${r.error}`);
+      for (let waited = 0; waited < 20000 && events.info().state !== 'live'; waited += 500) await new Promise(res => setTimeout(res, 500));
+      await new Promise(res => setTimeout(res, Math.min(1000 * (attempt + 1), 8000)));
+    }
+    return r;
+  })().then(r => {
     part.state = r.ok ? 'done' : 'failed';
     part.text = r.ok ? r.text : '';
     if (!r.ok) log('stt', `clip failed: ${r.error}`);
@@ -460,7 +524,8 @@ function maybeFinish() {
   dict = null;
   autosize(); saveDraft();
   if (finished.parts.some(p => p.state === 'failed')) { dict = null; showFailedClips(finished); finished.parts = finished.parts.filter(p => p.state === 'failed'); }
-  if (finished.sendAfter && draftEl.value.trim()) send();
+  // Never send with a clip missing: a failed clip keeps the draft and offers a retry.
+  if (finished.sendAfter && draftEl.value.trim() && !finished.parts.some(p => p.state === 'failed')) send();
   if (finished.wasPlaying) player.resume();
 }
 
@@ -497,17 +562,22 @@ function send() {
 function removeLocal(l) { locals.set(l.topic, (locals.get(l.topic) ?? []).filter(x => x !== l)); l.node?.remove(); }
 function refreshLocal(l) { if (l.topic !== current) return; const old = l.node; const fresh = localEl(l); old?.replaceWith(fresh); }
 
+/** Sends `l`; failures requeue it with backoff (and at once when the connection returns) so it never needs a manual retry unless 8 attempts failed. */
 async function deliver(l) {
-  l.state = 'sending'; refreshLocal(l);
-  if (l.uncertain) {
-    const found = await zulip.call('GET', 'messages', {narrow: topicQuery(l.topic), anchor: 'newest', num_before: 5, num_after: 0, apply_markdown: false});
-    if (found.ok && found.data.messages.some(m => m.sender_id === cfg.humanId && m.content === l.text && m.timestamp * 1000 > l.sentAtMs - 5000)) { log('send', 'uncertain send was delivered'); removeLocal(l); for (const m of found.data.messages) if (model.add(m) && l.topic === current) appendMessage(m); return; }
-  }
-  const r = await zulip.call('POST', 'messages', {type: 'stream', to: cfg.streamId, topic: l.topic, content: l.text, queue_id: events.queueId() ?? '', local_id: l.localId});
-  if (r.ok) { l.state = 'sent'; l.sentId = r.data.id; setTimeout(() => { if ((locals.get(l.topic) ?? []).includes(l)) removeLocal(l); }, 4000); l.node?.querySelector('.state')?.replaceChildren(); l.node?.classList.remove('sending'); return; }
-  l.state = 'failed'; l.uncertain = r.uncertain;
-  refreshLocal(l);
-  toast(r.uncertain ? 'Not sure it was sent; retry checks first' : r.error);
+  if (l.inflight) return;
+  l.inflight = true; l.state = 'sending'; refreshLocal(l);
+  try {
+    if (l.uncertain) {
+      const found = await zulip.call('GET', 'messages', {narrow: topicQuery(l.topic), anchor: 'newest', num_before: 5, num_after: 0, apply_markdown: false});
+      if (found.ok && found.data.messages.some(m => m.sender_id === cfg.humanId && m.content === l.text && m.timestamp * 1000 > l.sentAtMs - 5000)) { log('send', 'uncertain send was delivered'); removeLocal(l); for (const m of found.data.messages) if (model.add(m) && l.topic === current) appendMessage(m); return; }
+    }
+    const r = await zulip.call('POST', 'messages', {type: 'stream', to: cfg.streamId, topic: l.topic, content: l.text, queue_id: events.queueId() ?? '', local_id: l.localId});
+    if (r.ok) { l.state = 'sent'; l.sentId = r.data.id; setTimeout(() => { if ((locals.get(l.topic) ?? []).includes(l)) removeLocal(l); }, 4000); l.node?.querySelector('.state')?.replaceChildren(); l.node?.classList.remove('sending'); return; }
+    l.uncertain = r.uncertain;
+    l.attempts = (l.attempts ?? 0) + 1;
+    if (l.attempts <= 8) { l.state = 'queued'; refreshLocal(l); setTimeout(() => { if (l.state === 'queued') deliver(l); }, Math.min(1500 * 2 ** l.attempts, 15000)); }
+    else { l.state = 'failed'; refreshLocal(l); toast(r.error); }
+  } finally { l.inflight = false; }
 }
 
 // ---- UI chrome ----
@@ -536,7 +606,22 @@ feed.addEventListener('scroll', () => {
   const top = feed.scrollTop, delta = top - lastScroll;
   if (Math.abs(delta) > 6) { scrolledAway = delta > 0 && top > 80 && !atBottom(); $('bar').classList.toggle('away', scrolledAway); $('dock').classList.toggle('min', scrolledAway && player.position().status === 'idle'); lastScroll = top; }
 }, {passive: true});
-feed.addEventListener('touchmove', () => { follow = false; }, {passive: true});
+/** A manual scroll while audio plays suspends following and offers a pill to resume. */
+const setFollow = on => { follow = on; $('jump').hidden = on || nowMsgId === null; };
+feed.addEventListener('touchmove', () => { if (nowMsgId !== null) setFollow(false); }, {passive: true});
+feed.addEventListener('wheel', () => { if (nowMsgId !== null) setFollow(false); }, {passive: true});
+let userScrollMs = 0, scrollPastTimer = 0;
+for (const type of ['touchmove', 'wheel']) feed.addEventListener(type, () => { userScrollMs = Date.now(); }, {passive: true});
+feed.addEventListener('scroll', () => {
+  clearTimeout(scrollPastTimer);
+  if (Date.now() - userScrollMs > 1500) return;
+  scrollPastTimer = setTimeout(() => {   // an agent message fully above the viewport was scrolled past by hand: it counts as read
+    const top = feed.getBoundingClientRect().top;
+    const past = [...feed.querySelectorAll('.msg.agent.unread')].filter(n => n.getBoundingClientRect().bottom < top).map(n => +n.dataset.id);
+    if (past.length) markRead(past);
+  }, 700);
+}, {passive: true});
+$('jump').onclick = () => { setFollow(true); scrollToNow(true); };
 feed.addEventListener('click', event => {
   const node = event.target.closest('.msg.agent');
   if (!node || event.target.closest('a')) return;
@@ -550,8 +635,14 @@ for (const type of ['touchend', 'click']) addEventListener(type, () => { if (!pl
 $('agent').onclick = () => { $('search').value = ''; openPicker(); };
 $('search').oninput = openPicker;
 $('play').onclick = togglePlay;
-$('prev').onclick = () => jump(-1);
-$('next').onclick = () => jump(1);
+/** Tap steps one chunk; holding for 0.5 s steps a whole message. */
+for (const [id, direction] of [['prev', -1], ['next', 1]]) {
+  let timer = 0, held = false;
+  const button = $(id);
+  button.addEventListener('pointerdown', () => { held = false; timer = setTimeout(() => { held = true; jump(direction, true); }, 500); });
+  for (const type of ['pointerup', 'pointerleave', 'pointercancel']) button.addEventListener(type, () => clearTimeout(timer));
+  button.onclick = () => { if (!held) jump(direction); held = false; };
+}
 $('slower').onclick = () => setRate(rate - 0.1);
 $('faster').onclick = () => setRate(rate + 0.1);
 $('auto').onclick = () => setAutoplay(!autoplay);
@@ -570,6 +661,10 @@ function renderConn(info) {
   // After an outage the timeline is the evidence; send it once (at most every 2 min).
   if (info.state === 'live' && lastState !== 'live' && lastState !== 'connecting' && Date.now() - lastAutoLogMs > 120000 && cfg.relayStreamId) { lastAutoLogMs = Date.now(); sendLog('reconnected after ' + lastState); }
   lastState = info.state;
+  const down = info.state === 'retrying' || info.state === 'offline';
+  $('net').hidden = !down && !zulip.rateLimitedForMs();
+  $('net').textContent = zulip.rateLimitedForMs() ? `Zulip is rate limiting this account; resuming in ${Math.ceil(zulip.rateLimitedForMs() / 1000)}s.` : 'No connection. Messages and audio will resume by themselves.';
+  if (info.state === 'live') for (const list of locals.values()) for (const l of list) if (l.state === 'queued' || l.state === 'failed') { l.attempts = 0; deliver(l); }
   $('conn').dataset.state = info.state;
   $('conn-text').textContent = info.state === 'live' ? '' : info.state === 'offline' ? 'Offline' : 'Reconnecting…';
   if (document.querySelector('#debug-sheet[open]')) renderDebug();
@@ -583,6 +678,7 @@ function debugStatus() {
     `events: ${info.state} queue=${info.queueId} lastOk=${info.lastOkAgoMs ?? '-'}ms fails=${info.failures} poll=${info.pollAgeMs ?? '-'}ms`,
     `voice: ${voiceState.text}; prepared=${voice.preparedCount()} pending=${voice.pendingCount()}`,
     `player: ${JSON.stringify(player.snapshot())}`,
+    `api: ${zulip.callsLastMinute()} calls in the last minute${zulip.rateLimitedForMs() ? '; RATE LIMITED for ' + Math.ceil(zulip.rateLimitedForMs() / 1000) + 's' : ''}`,
     `view: topic=${current} msgs=${model.messages(current).length} unread=${model.unreadAgentMessages(current).length} autoplay=${autoplay} readQueue=${readQueue.size}`,
   ].join('\n');
 }
@@ -628,4 +724,4 @@ if (cfg.relayStreamId) {
   ensureRelayMuted(zulip, cfg.relayStreamId);
   setTimeout(checkVoice, 1500);
 } else voiceState = {ok: false, text: 'voice-relay channel not found'};
-window.__voice = {model, player, events, voice, log, cfg: () => ({...cfg, key: '…'}), current: () => current};
+window.__voice = {model, player, events, voice, zulip, log, cfg: () => ({...cfg, key: '…'}), current: () => current};

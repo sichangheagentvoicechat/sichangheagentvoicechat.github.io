@@ -20,24 +20,33 @@ const WORKLET = `registerProcessor('cap', class extends AudioWorkletProcessor {
   }
 });`;
 
+/** G.711 mu-law byte of a sample in [-1, 1]. */
+function mulaw(x) {
+  const sign = x < 0 ? 0x80 : 0;
+  const magnitude = Math.min(32635, Math.round(Math.abs(x) * 32767)) + 132;
+  let exponent = 7;
+  for (let mask = 0x4000; (magnitude & mask) === 0 && exponent > 0; mask >>= 1) exponent--;
+  return ~(sign | (exponent << 4) | ((magnitude >> (exponent + 3)) & 0x0f)) & 0xff;
+}
+
 function resampleToWav(frames, fromHz) {
   const total = frames.reduce((n, f) => n + f.length, 0);
   const flat = new Float32Array(total);
   let at = 0;
   for (const f of frames) { flat.set(f, at); at += f.length; }
   const outLen = Math.floor(total * TARGET_HZ / fromHz);
-  const view = new DataView(new ArrayBuffer(44 + outLen * 2));
-  const ascii = (o, s) => { for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)); };
-  ascii(0, 'RIFF'); view.setUint32(4, 36 + outLen * 2, true); ascii(8, 'WAVEfmt '); view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true); view.setUint16(22, 1, true); view.setUint32(24, TARGET_HZ, true); view.setUint32(28, TARGET_HZ * 2, true);
-  view.setUint16(32, 2, true); view.setUint16(34, 16, true); ascii(36, 'data'); view.setUint32(40, outLen * 2, true);
+  // 8-bit mu-law (WAVE format 7) halves the upload against 16-bit PCM; speech recognition is unaffected at 16 kHz.
+  const view = new DataView(new ArrayBuffer(46 + outLen));
+  const ascii = (o, str) => { for (let i = 0; i < str.length; i++) view.setUint8(o + i, str.charCodeAt(i)); };
+  ascii(0, 'RIFF'); view.setUint32(4, 38 + outLen, true); ascii(8, 'WAVEfmt '); view.setUint32(16, 18, true);
+  view.setUint16(20, 7, true); view.setUint16(22, 1, true); view.setUint32(24, TARGET_HZ, true); view.setUint32(28, TARGET_HZ, true);
+  view.setUint16(32, 1, true); view.setUint16(34, 8, true); view.setUint16(36, 0, true); ascii(38, 'data'); view.setUint32(42, outLen, true);
   const ratio = fromHz / TARGET_HZ;
   for (let i = 0; i < outLen; i++) {
     const from = Math.floor(i * ratio), to = Math.min(total, Math.max(from + 1, Math.floor((i + 1) * ratio)));
     let sum = 0;
     for (let j = from; j < to; j++) sum += flat[j];
-    const sample = Math.max(-1, Math.min(1, sum / (to - from)));
-    view.setInt16(44 + i * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+    view.setUint8(46 + i, mulaw(Math.max(-1, Math.min(1, sum / (to - from)))));
   }
   return new Blob([view], {type: 'audio/wav'});
 }
