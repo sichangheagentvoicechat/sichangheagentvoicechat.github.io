@@ -1,13 +1,13 @@
 /** Wires the model, Zulip events, voice service, player, recorder and DOM. Behavior is described in `../docs/v2/design.md`. */
-import {createLog} from './log.mjs?v=a0cd81712e';
-import {createZulip, createEvents} from './zulip.mjs?v=a0cd81712e';
-import {createVoice} from './voice.mjs?v=a0cd81712e';
-import {createPlayer} from './player.mjs?v=a0cd81712e';
-import {createRecorder} from './recorder.mjs?v=a0cd81712e';
-import {createModel, parsed, itemsOf} from './model.mjs?v=a0cd81712e';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=a0cd81712e';
+import {createLog} from './log.mjs?v=1639c4bcf0';
+import {createZulip, createEvents} from './zulip.mjs?v=1639c4bcf0';
+import {createVoice} from './voice.mjs?v=1639c4bcf0';
+import {createPlayer} from './player.mjs?v=1639c4bcf0';
+import {createRecorder} from './recorder.mjs?v=1639c4bcf0';
+import {createModel, parsed, itemsOf} from './model.mjs?v=1639c4bcf0';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=1639c4bcf0';
 
-const BUILD = 'v2.0-a0cd81712e';
+const BUILD = 'v2.0-1639c4bcf0';
 const ACCOUNT_KEY = 'zulip-voice-account';
 const $ = id => document.getElementById(id);
 const store = {
@@ -502,17 +502,22 @@ function syncDictation() {
   draftEl.scrollTop = draftEl.scrollHeight;
 }
 
+/** The UI flips to recording on the tap itself; microphone setup finishes in the background and a failure reverts it. */
 async function startDictation() {
+  if (dict) return;
   player.unlock();
   if (voiceState.ok === false) toast('Voice service is not responding; dictation may fail');
   const wasPlaying = ['playing', 'loading'].includes(player.position().status);
-  dict = {base: draftEl.value, parts: [], stopping: false, sendAfter: false, cancelled: false, wasPlaying};
-  const r = await recorder.start();
-  if (!r.ok) { dict = null; return toast(r.error); }
+  const mine = dict = {base: draftEl.value, parts: [], stopping: false, sendAfter: false, cancelled: false, wasPlaying};
   if (wasPlaying) player.pause();
   $('composer').classList.add('rec'); $('cancel-rec').hidden = false; $('level').hidden = false;
   draftEl.readOnly = true; $('send').disabled = false; $('mic').setAttribute('aria-label', 'Stop dictation');
   $('send').setAttribute('aria-label', 'Finish and send');
+  const r = await recorder.start();
+  if (r.ok || dict !== mine) return;   // started, or the user already stopped it
+  mine.stopping = true; mine.cancelled = true;
+  if (r.error) toast(r.error);
+  maybeFinish();
 }
 
 function onClip(blob) {
