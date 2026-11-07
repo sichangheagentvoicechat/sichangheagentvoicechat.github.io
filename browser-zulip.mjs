@@ -14,6 +14,19 @@ export function createBrowserZulip(config,{fetch:network=globalThis.fetch,storag
   function observeRateLimit(response,data={}){if(response.status===429){const reset=Number(response.headers.get('x-ratelimit-reset')),after=Number(response.headers.get('retry-after')||data.retry_after);retryAtMs=Number.isFinite(reset)&&reset>now()/1000?reset*1000:now()+(after>0?after:60)*1000;}return retryAtMs;}
   function checkCooldown(){if(now()<retryAtMs)throw new Error(`HTTP 429: rate limited; retry in ${Math.ceil((retryAtMs-now())/1000)} seconds.`);}
   const latestIds=new Map();
+  const histories=new Map(),unreads=new Map(),unreadMore=new Set(),received=[];let eventAnchor=null;
+  function ingestMessage(message){
+    if(message.type!=='stream'||message.stream_id!==config.streamId)return;
+    eventAnchor=Math.max(eventAnchor||0,message.id);
+    latestIds.set(message.subject,Math.max(latestIds.get(message.subject)||0,message.id));
+    if(!conversations.some(c=>c.id===message.subject))conversations.unshift({id:message.subject,name:message.subject});
+    conversations.sort((a,b)=>(latestIds.get(b.id)||0)-(latestIds.get(a.id)||0));
+    if(!received.some(m=>m.id===message.id)){received.push(message);if(received.length>1000)received.shift();}
+    const history=histories.get(message.subject);if(history&&!history.some(m=>m.id===message.id)){history.push(message);if(history.length>100)history.shift();}
+    const unread=unreads.get(message.subject);if(unread&&message.sender_id===config.botId&&!message.flags?.includes('read'))unread.set(message.id,message);
+  }
+  function ingestFlags(event){if(event.flag!=='read')return;if(event.all&&event.op==='add'){for(const unread of unreads.values())unread.clear();return;}for(const id of event.messages||[])for(const unread of unreads.values())if(event.op==='add')unread.delete(id);if(event.op==='remove')unreads.clear();}
+  async function recoverEvents(){histories.clear();unreads.clear();unreadMore.clear();for(;;){const result=await messages({anchor:eventAnchor??'newest',num_before:0,num_after:100,include_anchor:'false',narrow:JSON.stringify(narrow())});if(result.error)return result;for(const message of result.data.messages)ingestMessage(message);if(result.data.found_newest||result.data.messages.length<100)return {data:true};}}
   const pending=new Map();
   async function request(method,path,fields={}){
     if(now()<retryAtMs)return {error:`${method} /api/v1/${path}: HTTP 429; rate limited, retry in ${Math.ceil((retryAtMs-now())/1000)} seconds.`,status:429,retryAtMs,uncertain:false};
@@ -33,6 +46,7 @@ export function createBrowserZulip(config,{fetch:network=globalThis.fetch,storag
     if(result.error)return result;
     conversations=result.data.topics.sort((a,b)=>b.max_id-a.max_id).map(t=>({id:t.name,name:t.name}));
     for(const topic of result.data.topics)latestIds.set(topic.name,Math.max(latestIds.get(topic.name)||0,topic.max_id));
+    if(eventAnchor===null)eventAnchor=Math.max(0,...latestIds.values());
     return {data:conversations};
   }
   function route(text){
@@ -80,31 +94,32 @@ export function createBrowserZulip(config,{fetch:network=globalThis.fetch,storag
     const agent=url.searchParams.get('agent');
     if(url.pathname==='/api/mode')return {data:{mock:false,scope}};
     if(!conversations.length){const r=await refresh();if(r.error)return r;}
-    if(url.pathname==='/api/conversations')return refresh();
+    if(url.pathname==='/api/conversations')return {data:conversations};
     if(agent&&!conversations.some(c=>c.id===agent))return {error:'Unknown agent'};
     if(url.pathname==='/api/messages'){
       const anchor=url.searchParams.get('anchor')||'newest';
-      const r=await messages({anchor,num_before:anchor==='newest'?30:15,num_after:anchor==='newest'?0:15,narrow:JSON.stringify(narrow(agent))});
+      const cached=histories.get(agent);
+      const r=cached&&(anchor==='newest'||cached.some(m=>String(m.id)===String(anchor)))?{data:{messages:cached}}:await messages({anchor,num_before:anchor==='newest'?30:15,num_after:anchor==='newest'?0:15,narrow:JSON.stringify(narrow(agent))});
       if(r.error)return r;
+      histories.set(agent,r.data.messages);
       return {data:r.data.messages.filter(m=>[config.humanId,config.botId].includes(m.sender_id)).map(m=>({id:m.id,sender:m.sender_id===config.humanId?'human':'agent',text:m.sender_id===config.botId?route(m.content).text:m.content,unread:!m.flags?.includes('read')}))};
     }
     if(url.pathname==='/api/unread'){
-      const r=await messages({anchor:'oldest',num_before:0,num_after:100,narrow:JSON.stringify([...narrow(agent),{operator:'sender',operand:config.botId},{operator:'is',operand:'unread'}])});
+      const savedUnread=unreads.get(agent),cached=savedUnread?.size||!unreadMore.has(agent)?savedUnread:null;
+      const r=cached?{data:{messages:[...cached.values()]}}:await messages({anchor:'oldest',num_before:0,num_after:100,narrow:JSON.stringify([...narrow(agent),{operator:'sender',operand:config.botId},{operator:'is',operand:'unread'}])});
+      if(r.data&&!cached){unreads.set(agent,new Map(r.data.messages.map(m=>[m.id,m])));if(r.data.messages.length>=100&&!r.data.found_newest)unreadMore.add(agent);else unreadMore.delete(agent);}
       return r.error?r:{data:r.data.messages.filter(m=>m.sender_id===config.botId).map(m=>({id:m.id,agent:m.subject,unread:true,...route(m.content)}))};
     }
     if(url.pathname==='/api/events'){
-      const topics=await refresh();if(topics.error)return topics;
       const after=url.searchParams.has('after')?Number(url.searchParams.get('after')):null;
-      const r=await messages({anchor:after===null?'newest':after,num_before:after===null?1:0,num_after:after===null?0:100,include_anchor:after===null?'true':'false',narrow:JSON.stringify(narrow())});
-      if(r.error)return r;
-      const list=r.data.messages.filter(m=>after===null||m.id>after).sort((a,b)=>a.id-b.id);
+      const list=received.filter(m=>after===null||m.id>after).sort((a,b)=>a.id-b.id);
       return {data:{cursor:list.at(-1)?.id??after??0,conversations,events:after===null?[]:list.filter(m=>m.sender_id===config.botId&&conversations.some(c=>c.id===m.subject)).map(m=>({id:m.id,agent:m.subject,...route(m.content)}))}};
     }
     if(method==='POST'){
       let input;try{input=JSON.parse(options.body);}catch{return {error:'Invalid JSON'};}
       if(url.pathname==='/api/read'){
         if(!Number.isSafeInteger(input?.id)||input.id<1)return {error:'Invalid message ID'};
-        const r=await request('POST','messages/flags',{messages:JSON.stringify([input.id]),op:'add',flag:'read'});return r.error?r:{data:{ok:true}};
+        const r=await request('POST','messages/flags',{messages:JSON.stringify([input.id]),op:'add',flag:'read'});if(!r.error)ingestFlags({flag:'read',op:'add',messages:[input.id]});return r.error?r:{data:{ok:true}};
       }
       if(url.pathname==='/api/send'){
         if(!input||typeof input.id!=='string'||!/^[a-zA-Z0-9_-]{1,100}$/.test(input.id)||!conversations.some(c=>c.id===input.agent)||typeof input.text!=='string'||!input.text.trim()||input.text.length>8000)return {error:'Invalid message or recipient'};
@@ -117,5 +132,5 @@ export function createBrowserZulip(config,{fetch:network=globalThis.fetch,storag
     }
     return {error:'Not found'};
   }
-return {config,request,checkCooldown,observeRateLimit,async verify(){const r=await request('GET','users/me');return r.error?r:r.data.user_id===config.humanId&&r.data.is_bot===false?{data:true}:{error:'Credentials must belong to the configured human.'};},async fetch(path,options){const r=await dispatch(path,options);return new Response(JSON.stringify(r.error?r:r.data),{status:r.error?(r.status||409):200,headers:{'Content-Type':'application/json'}});}};
+return {config,request,ingestMessage,ingestFlags,recoverEvents,checkCooldown,observeRateLimit,async verify(){const r=await request('GET','users/me');return r.error?r:r.data.user_id===config.humanId&&r.data.is_bot===false?{data:true}:{error:'Credentials must belong to the configured human.'};},async fetch(path,options){const r=await dispatch(path,options);return new Response(JSON.stringify(r.error?r:r.data),{status:r.error?(r.status||409):200,headers:{'Content-Type':'application/json'}});}};
 }

@@ -256,6 +256,7 @@ await pollEvents();
 compactControls=installCompactControls({composer,draft:el.draft,dictate:el.dictate});
 try{const saved=JSON.parse(localStorage.getItem('voice-position:'+storageScope));if(saved&&conversations.some(c=>c.id===saved.agent)){pausedPosition=saved;el.agent.value=saved.agent;el.draft.value=drafts[saved.agent]?.text||'';pending=drafts[saved.agent]?.pending||null;await load(saved.id);pauseButton.textContent='Play';}}catch{}
 setInterval(pollEvents,window.voiceBrowserOnly?5000:1500);
+window.addEventListener('voice-task-update',pollEvents);
 setInterval(flushOutbox,10000);
 window.addEventListener('online',()=>{if(!ready)location.reload();else{flushOutbox();pollEvents();}});
 if(window.visualViewport)window.visualViewport.addEventListener('resize',()=>{document.body.style.height=window.visualViewport.height+'px';});

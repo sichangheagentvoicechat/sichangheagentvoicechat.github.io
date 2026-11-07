@@ -57,13 +57,14 @@ export function createAudio({status,transcribe,clipsChanged=()=>{}}){
     objectURL=URL.createObjectURL(new Blob([buffer],{type:'audio/wav'}));player.src=objectURL;player.play().catch(()=>{});
   }
   function stop(keepPrepared=false){generation++;controller?.abort();if(!keepPrepared)clearPrepared();player.pause();player.removeAttribute('src');release(current);current=null;if(objectURL)URL.revokeObjectURL(objectURL);objectURL=null;finish();}
-  async function speak(text,done,failed,started){
-    const token=generation;controller=new AbortController();
+  async function speak(text,done,failed,started,retried=false){
+    const token=generation;let retrying=false;controller=new AbortController();
     try{
       const cached=prepared.get(text);prepared.delete(text);
       if(cached)controller=cached.controller;
       let result=await(cached?.promise||prepare(text,controller.signal));
       if(cached&&result.error&&token===generation&&!controller.signal.aborted)result=await prepare(text,controller.signal);
+      if(result.expiresAt&&result.expiresAt<=Date.now()&&!(result.preload?.readyState>=2)){release(result);result=await prepare(text,controller.signal);}
       if(result.error)throw new Error(result.error);
       if(token!==generation){release(result);return;}
       current={...result,done,failed,text};
@@ -72,10 +73,10 @@ export function createAudio({status,transcribe,clipsChanged=()=>{}}){
       player.playbackRate=rate;
       player.onloadedmetadata=null;
       player.onended=()=>{if(token===generation){release(current);current=null;done?.();}};
-      player.onerror=()=>{if(token===generation){release(current);current=null;status('Audio playback failed. Tap a sentence to retry.');failed?.();}};
+      player.onerror=()=>{if(token===generation){player.onended=null;player.onerror=null;release(current);current=null;if(result.audioURL&&!retried){retrying=true;void speak(text,done,failed,started,true);return;}status('Audio playback failed. Tap a sentence to retry.');failed?.();}};
       try{await player.play();}catch(error){if(error.name!=='NotAllowedError'||player===gesturePlayer)throw error;const previous=player;player=gesturePlayer;player.src=result.audioURL||objectURL;player.playbackRate=rate;player.onended=previous.onended;player.onerror=previous.onerror;previous.onended=null;previous.onerror=null;await player.play();}
       if(token===generation)started?.();
-    }catch(error){if(token!==generation)return;if(error.name==='NotAllowedError'&&current){const item=current;current=null;permissionPending=true;cachePrepared(item);status('Playback needs permission. Tap Play to continue.');}else{release(current);current=null;status('Audio: '+error.message);}failed?.();}
+    }catch(error){if(token!==generation||retrying)return;if(error.name==='NotAllowedError'&&current){const item=current;current=null;permissionPending=true;cachePrepared(item);status('Playback needs permission. Tap Play to continue.');}else{release(current);current=null;status('Audio: '+error.message);}failed?.();}
   }
   // 🧑 "allow another dictation while the previous one is processing"
   async function record(done,failed,metadata,stopped=()=>{}){
