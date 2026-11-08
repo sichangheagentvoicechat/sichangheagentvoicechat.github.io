@@ -63,11 +63,13 @@ async function openMic(aec) {
   const node = new AudioWorkletNode(ctx, 'cap'), source = ctx.createMediaStreamSource(stream);
   const sink = ctx.createGain(); sink.gain.value = 0;   // keep the graph pulled without playing the mic
   node.connect(sink); sink.connect(ctx.destination); source.connect(node);
+  stream.getAudioTracks()[0].addEventListener('ended', () => log('mic', 'track ended (route change?)'));
   const frames = {}, state = {phase: null};
   node.port.onmessage = ({data}) => { if (state.phase) (frames[state.phase] ??= []).push(data); };
   return {
     settings: stream.getAudioTracks()[0].getSettings?.() ?? {}, hz: ctx.sampleRate, frames,
     setPhase: id => { state.phase = id; },
+    state: () => ctx.state,
     close: () => { node.disconnect(); source.disconnect(); stream.getTracks().forEach(t => t.stop()); ctx.close().catch(() => {}); try { navigator.audioSession.type = 'playback'; } catch { /* unsupported */ } },
   };
 }
@@ -102,7 +104,8 @@ async function runMode(aec, plan) {
     const quiet = mic.frames.settle ?? [];
     if (quiet.length) { noise = measure(quiet, mic.hz, noise).floor; mic.frames.settle = []; }
     mode.phases[ph.id] = measure(mic.frames[ph.id] ?? [], mic.hz, ph.play ? 0.004 : noise);
-    if (ph.say) mode.clips[ph.id] = wavOf(mic.frames[ph.id], mic.hz);
+    if (ph.say && mic.frames[ph.id]?.length) mode.clips[ph.id] = wavOf(mic.frames[ph.id], mic.hz);
+    else if (ph.say) log('mic', `no frames in phase ${ph.id} (mic stalled? ctx ${mic.state()})`);
     render(plan);
   }
   mic.close();
@@ -125,6 +128,24 @@ function features() {
 }
 
 const modes = [];
+const wait = (p, ms) => Promise.race([p, sleep(ms).then(() => ({ok: false, error: 'timeout'}))]);
+/** Sends `text` with the relay `log` op until the relay's result arrives (`sendLog` resolves ok only then); shows progress; returns `{ok, tries}`. */
+async function deliver(label, text) {
+  if (!voice) return {ok: false, tries: 0, error: 'no stored account'};
+  let last;
+  for (let tries = 1; tries <= 6; tries++) {
+    $('delivery').textContent = `Sending "${label}" to server (try ${tries})…`;
+    ensureEvents();
+    last = await wait(voice.sendLog(label, text), 20000);
+    if (last.ok) { $('delivery').textContent = `delivered to server \u2713 (${label}, try ${tries}, ${new Date().toLocaleTimeString()})`; return {ok: true, tries}; }
+    log('deliver', `${label} try ${tries} failed: ${last.error}`);
+    $('delivery').textContent = `NOT delivered (${label}: ${last.error}); retrying…`;
+    await sleep(2000 * tries);
+  }
+  $('delivery').textContent = `NOT delivered (${label}: ${last.error}). Tap Copy and paste it to the agent.`;
+  return {ok: false, tries: 6, error: last.error};
+}
+document.addEventListener('visibilitychange', () => log('page', 'visibility ' + document.visibilityState));
 const reportText = (route, final) => `voicecmd ${final ? 'FINAL' : 'partial'} ${new Date().toISOString()}\noutput route (user says): ${route}\n${JSON.stringify(features())}\n\n${modes.map(modeLine).join('\n')}\n\n${out.slice(-30).join('\n')}`;
 function render(route) { $('results').textContent = reportText(route, false); }
 
@@ -140,6 +161,7 @@ async function start() {
   audio.src = SILENCE; audio.play().then(() => audio.pause(), () => {});   // iOS: prime the element inside the tap
   if (voice) ensureEvents();
   await sleep(300);
+  deliver('voicecmd-start', reportText(route, false));
   audio.src = 'speech.m4a'; audio.load();
   try {
     for (const aec of [true, false]) { modes.push(await runMode(aec, route)); }
@@ -147,21 +169,22 @@ async function start() {
     log('error', `${e.name} ${e.message}`);
     $('prompt').textContent = `Failed: ${e.name} ${e.message}`;
     $('results').textContent = reportText(route, false);
-    if (voice) await voice.sendLog('voicecmd-error', reportText(route, false));
+    await deliver('voicecmd-error', reportText(route, false));
     return;
   }
-  $('prompt').textContent = 'Done speaking. Transcribing…';
+  $('prompt').textContent = 'Done speaking. Sending measurements, then transcribing…';
+  window.__voicecmd.mid = await deliver('voicecmd-measurements', reportText(route, false));
   if (voice) {
     for (const m of modes) {
       m.transcripts = {};
-      for (const id of Object.keys(m.clips)) { const r = await voice.stt(m.clips[id]); m.transcripts[id] = r.ok ? r.text : 'ERROR ' + r.error; render(route); }
+      for (const id of Object.keys(m.clips)) { const r = await wait(voice.stt(m.clips[id]), 30000); m.transcripts[id] = r.ok ? r.text : 'ERROR ' + r.error; render(route); }
     }
   }
   const text = reportText(route, true);
   $('results').textContent = text;
   window.__voicecmd.text = text;
-  const sent = voice ? await voice.sendLog('voicecmd', text) : {ok: false, error: 'no stored account: open the app and sign in first'};
-  $('prompt').textContent = sent.ok ? 'Done. Report sent to the server. Now run again with the other output (speaker / earbuds).' : `Done. NOT sent (${sent.error}); use Copy.`;
+  const sent = await deliver('voicecmd', text);
+  $('prompt').textContent = sent.ok ? 'Done. Report delivered to the server (confirmed). Now run again with the other output (speaker / earbuds).' : `Done. NOT delivered (${sent.error}); use Copy.`;
   window.__voicecmd.done = true; window.__voicecmd.sent = sent;
   $('start').disabled = false; $('start').textContent = 'Run again';
 }
