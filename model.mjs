@@ -1,5 +1,5 @@
 /** Conversation state (pure data, no DOM, no network): messages per topic, unread, play queues. */
-import {parseAgentMessage, messageChunks} from './text.mjs?v=971196328f';
+import {parseAgentMessage, messageChunks} from './text.mjs?v=456b9a8a62';
 
 const parsedCache = new WeakMap();
 
@@ -7,8 +7,8 @@ const parsedCache = new WeakMap();
 export function parsed(message) {
   let p = parsedCache.get(message);
   if (!p) {
-    const {title, body, switchTo, attachments} = parseAgentMessage(message.content);
-    p = {title, body, switchTo, attachments, ...messageChunks(body)};
+    const {title, body, switchTo, attachments, footers} = parseAgentMessage(message.content);
+    p = {title, body, switchTo, attachments, footers, ...messageChunks(body)};
     parsedCache.set(message, p);
   }
   return p;

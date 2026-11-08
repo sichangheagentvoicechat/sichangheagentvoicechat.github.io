@@ -1,6 +1,6 @@
 /** DOM builders for messages and agent rows. No state. */
-import {inlineHtml, extractAttachments} from './text.mjs?v=971196328f';
-import {parsed} from './model.mjs?v=971196328f';
+import {inlineHtml, extractAttachments} from './text.mjs?v=456b9a8a62';
+import {parsed} from './model.mjs?v=456b9a8a62';
 
 const el = (tag, className, html) => { const e = document.createElement(tag); if (className) e.className = className; if (html !== undefined) e.innerHTML = html; return e; };
 const textEl = (tag, className, text) => { const e = el(tag, className); e.textContent = text; return e; };
@@ -27,6 +27,14 @@ export function agentEl(message, getUrl) {
   });
   if (!p.blocks.length) body.append(textEl('p', 'muted', p.switchTo ? `Switching to ${p.switchTo}` : '(empty)'));
   root.append(body);
+  if (p.footers.length) {   // amh item footers: shown on wide screens, folded into a chip on narrow ones
+    const items = p.footers.filter(l => /^\s*[-*]\s+/.test(l)).length;
+    const box = el('div', 'footer');
+    const chip = textEl('button', 'footer-chip', `· ${items || p.footers.length} item${(items || p.footers.length) === 1 ? '' : 's'}`);
+    chip.type = 'button'; chip.onclick = () => box.classList.toggle('open');
+    const text = textEl('div', 'footer-text', p.footers.join('\n'));
+    box.append(chip, text); root.append(box);
+  }
   if (p.attachments.length) root.append(attachmentsEl(p.attachments, getUrl));
   setUnread(root, !message.flags?.includes('read'));
   return root;
