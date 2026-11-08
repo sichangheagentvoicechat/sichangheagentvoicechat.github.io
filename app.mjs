@@ -1,13 +1,13 @@
 /** Wires the model, Zulip events, voice service, player, recorder and DOM. Behavior is described in `../docs/v2/design.md`. */
-import {createLog} from './log.mjs?v=22ebff4158';
-import {createZulip, createEvents} from './zulip.mjs?v=22ebff4158';
-import {createVoice} from './voice.mjs?v=22ebff4158';
-import {createPlayer} from './player.mjs?v=22ebff4158';
-import {createRecorder} from './recorder.mjs?v=22ebff4158';
-import {createModel, parsed, itemsOf} from './model.mjs?v=22ebff4158';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=22ebff4158';
+import {createLog} from './log.mjs?v=8be0336c9c';
+import {createZulip, createEvents} from './zulip.mjs?v=8be0336c9c';
+import {createVoice} from './voice.mjs?v=8be0336c9c';
+import {createPlayer} from './player.mjs?v=8be0336c9c';
+import {createRecorder} from './recorder.mjs?v=8be0336c9c';
+import {createModel, parsed, itemsOf} from './model.mjs?v=8be0336c9c';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=8be0336c9c';
 
-const BUILD = 'v2.0-22ebff4158';
+const BUILD = 'v2.0-8be0336c9c';
 const ACCOUNT_KEY = 'zulip-voice-account';
 const $ = id => document.getElementById(id);
 const store = {
@@ -624,25 +624,24 @@ function afterStartWord(text) {
   return words.slice(i).join(' ');
 }
 
-/** Speech while idle or playing only ducks the audio and records; the transcript decides (it must start with the start word). */
+/** Speech while idle or playing only records; the transcript decides (it must start with the start word). Playback volume is left alone. */
 function onBarge() {
   if (dict) return;
   const st = player.position().status;
   log('vc', `speech detected while ${st}${vc ? ' (session open)' : ''}`);
   if (vc) { clearTimeout(vc.timer); clearTimeout(vc.emptyTimer); vc.timer = vc.emptyTimer = 0; }
-  else if (st === 'playing' || st === 'loading') player.duck(true);
   setVcState('heard', 'hearing you');
 }
 async function onCommandClip(blob) {
   if (dict) return;
   const r = await voice.stt(blob);
-  if (!r.ok) { log('vc', `stt failed: ${r.error}`); recorder.beep('error'); player.duck(false); vcIdle(); return; }
+  if (!r.ok) { log('vc', `stt failed: ${r.error}`); recorder.beep('error'); vcIdle(); return; }
   const heard = r.text.trim();
   log('vc', `heard "${heard}"`);
-  if (!normalize(heard)) { if (!vc) { player.duck(false); recorder.setReplyMode(false); } vcIdle(); return; }
+  if (!normalize(heard)) { if (!vc) { recorder.setReplyMode(false); } vcIdle(); return; }
   if (!vc) {
     const rest = afterStartWord(heard);
-    if (rest === null) { log('vc', `ignored: "${heard}" (no start word)`); player.duck(false); recorder.setReplyMode(false); vcIdle(); return; }
+    if (rest === null) { log('vc', `ignored: "${heard}" (no start word)`); recorder.setReplyMode(false); vcIdle(); return; }
     openSession(rest);
     return;
   }
@@ -650,7 +649,7 @@ async function onCommandClip(blob) {
 }
 function openSession(rest) {
   if (['playing', 'loading'].includes(player.position().status)) player.pause();
-  player.duck(false);
+ 
   vc = {base: draftEl.value, text: '', timer: 0, emptyTimer: 0};
   recorder.setReplyMode(true); recorder.beep('ready');
   log('vc', `session opened by start word; rest "${rest}"`);
