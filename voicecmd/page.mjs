@@ -51,15 +51,19 @@ function wavOf(frames, hz) {
   return new Blob([view], {type: 'audio/wav'});
 }
 
-/** Opens the mic with all processing flags = `aec`; resolves to `{track settings, setPhase(id), close()}` collecting frames per phase. */
-async function openMic(aec) {
-  try { navigator.audioSession.type = 'play-and-record'; } catch { /* unsupported */ }
-  const ctx = new AudioContext();
-  const resumed = ctx.resume();
-  const stream = await navigator.mediaDevices.getUserMedia({audio: {echoCancellation: aec, noiseSuppression: aec, autoGainControl: aec}});
-  await resumed;
-  const url = URL.createObjectURL(new Blob([WORKLET], {type: 'text/javascript'}));
-  await ctx.audioWorklet.addModule(url);
+const guard = (promise, ms, name) => Promise.race([promise, sleep(ms).then(() => { throw Error(`HANG at ${name} after ${ms}ms`); })]);
+let step = 'idle', stepMs = performance.now();
+const setStep = name => { step = name; stepMs = performance.now(); log('step', name); $('step').textContent = 'step: ' + name; };
+const mediaFor = aec => navigator.mediaDevices.getUserMedia({audio: {echoCancellation: aec, noiseSuppression: aec, autoGainControl: aec}});
+
+/** Collects mic frames per phase from `streamPromise` (requested by the caller; the first one inside the Start tap) on the tap-created `ctx`. */
+async function openMic(ctx, streamPromise) {
+  setStep('getUserMedia (allow the microphone if asked)');
+  const stream = await guard(streamPromise, 60000, 'getUserMedia');
+  setStep('audio context resume');
+  await guard(ctx.resume(), 5000, `ctx.resume (state ${ctx.state})`);
+  setStep('worklet load');
+  if (!ctx.workletLoaded) { const url = URL.createObjectURL(new Blob([WORKLET], {type: 'text/javascript'})); await guard(ctx.audioWorklet.addModule(url), 8000, 'addModule'); ctx.workletLoaded = true; }
   const node = new AudioWorkletNode(ctx, 'cap'), source = ctx.createMediaStreamSource(stream);
   const sink = ctx.createGain(); sink.gain.value = 0;   // keep the graph pulled without playing the mic
   node.connect(sink); sink.connect(ctx.destination); source.connect(node);
@@ -70,7 +74,7 @@ async function openMic(aec) {
     settings: stream.getAudioTracks()[0].getSettings?.() ?? {}, hz: ctx.sampleRate, frames,
     setPhase: id => { state.phase = id; },
     state: () => ctx.state,
-    close: () => { node.disconnect(); source.disconnect(); stream.getTracks().forEach(t => t.stop()); ctx.close().catch(() => {}); try { navigator.audioSession.type = 'playback'; } catch { /* unsupported */ } },
+    close: () => { node.disconnect(); source.disconnect(); stream.getTracks().forEach(t => t.stop()); },
   };
 }
 
@@ -85,28 +89,33 @@ function measure(frames, hz, noise0) {
 
 async function countdown(text, ms) {
   const end = performance.now() + ms;
-  while (performance.now() < end) { $('prompt').textContent = `${text}  ${Math.ceil((end - performance.now()) / 1000)}s`; await sleep(100); }
+  while (performance.now() < end) { stepMs = performance.now(); $('prompt').textContent = `${text}  ${Math.ceil((end - performance.now()) / 1000)}s`; await sleep(100); }
 }
 
-async function runMode(aec, plan) {
+async function runMode(aec, plan, ctx, streamPromise) {
   const name = aec ? 'echoCancellation ON' : 'echoCancellation OFF';
-  const mic = await openMic(aec);
+  const mic = await openMic(ctx, streamPromise);
   const mode = {name, aec, settings: mic.settings, hz: mic.hz, phases: {}, clips: {}};
+  modes.push(mode);
   let noise = 0.004;
   mic.setPhase('settle0'); await countdown(`${name}: get ready, quiet`, SETTLE_MS);
   for (const ph of PHASES) {
     audio.currentTime = 0;
     mic.setPhase('settle'); await countdown(`${name}: next phase ${ph.id.toUpperCase()}, stay quiet`, 1200);
     mic.setPhase(ph.id);
-    if (ph.play) audio.play().catch(e => log('audio', 'play() rejected ' + e.name));
+    let playErr = null;
+    if (ph.play) { setStep(`phase ${ph.id} play()`); try { await guard(audio.play(), 4000, 'audio.play'); } catch (e) { playErr = e.name === 'Error' ? e.message : e.name; log('audio', `play() failed: ${playErr}`); } }
+    const t0 = ph.play ? audio.currentTime : 0;
     await countdown(`${name} ${ph.id.toUpperCase()}: ${ph.text}`, ph.ms);
-    mic.setPhase(null); audio.pause();
+    mic.setPhase(null);
+    const played = ph.play ? +(audio.currentTime - t0).toFixed(1) : null; audio.pause();
     const quiet = mic.frames.settle ?? [];
     if (quiet.length) { noise = measure(quiet, mic.hz, noise).floor; mic.frames.settle = []; }
-    mode.phases[ph.id] = measure(mic.frames[ph.id] ?? [], mic.hz, ph.play ? 0.004 : noise);
+    mode.phases[ph.id] = {...measure(mic.frames[ph.id] ?? [], mic.hz, ph.play ? 0.004 : noise), playErr, played, ctxState: mic.state()};
     if (ph.say && mic.frames[ph.id]?.length) mode.clips[ph.id] = wavOf(mic.frames[ph.id], mic.hz);
     else if (ph.say) log('mic', `no frames in phase ${ph.id} (mic stalled? ctx ${mic.state()})`);
     render(plan);
+    checkpoint(`voicecmd-${aec ? 'on' : 'off'}-${ph.id}`, plan);
   }
   mic.close();
   return mode;
@@ -114,7 +123,7 @@ async function runMode(aec, plan) {
 
 const f = n => (n * 100).toFixed(0) + '%', d = n => n.toFixed(1);
 function modeLine(m) {
-  const P = m.phases, row = id => P[id] ? `${id}: VAD ${f(P[id].vadFraction)}, level median ${d(P[id].medianDb)} p90 ${d(P[id].p90Db)} dBFS` : `${id}: -`;
+  const P = m.phases, row = id => P[id] ? `${id}: VAD ${f(P[id].vadFraction)}, level median ${d(P[id].medianDb)} p90 ${d(P[id].p90Db)} dBFS, frames ${P[id].n}, ctx ${P[id].ctxState}${P[id].played !== null ? `, played ${P[id].played}s` : ''}${P[id].playErr ? ', PLAY ERROR ' + P[id].playErr : ''}` : `${id}: -`;
   const margin = P.c && P.a ? `speech-vs-echo margin (c p90 - a p90): ${d(P.c.p90Db - P.a.p90Db)} dB; b p90 - a p90: ${P.b ? d(P.b.p90Db - P.a.p90Db) : '-'} dB` : '';
   const stt = Object.entries(m.transcripts ?? {}).map(([id, t]) => `stt ${id}: "${t}"`).join(' | ');
   return `${m.name}  (sampleRate ${m.hz}; settings ${JSON.stringify(m.settings)})\n  ${row('a')}\n  ${row('b')}\n  ${row('c')}\n  ${margin}${stt ? '\n  ' + stt : ''}`;
@@ -129,22 +138,29 @@ function features() {
 
 const modes = [];
 const wait = (p, ms) => Promise.race([p, sleep(ms).then(() => ({ok: false, error: 'timeout'}))]);
-/** Sends `text` with the relay `log` op until the relay's result arrives (`sendLog` resolves ok only then); shows progress; returns `{ok, tries}`. */
+const statuses = {};
+const showStatuses = () => { $('delivery').textContent = Object.entries(statuses).map(([k, v]) => `${k}: ${v}`).join('\n'); };
+/** Sends `text` with the relay `log` op until the relay's result arrives (`sendLog` resolves ok only then). The event queue must be live first, or the result is missed. */
 async function deliver(label, text) {
-  if (!voice) return {ok: false, tries: 0, error: 'no stored account'};
+  if (!voice) { statuses[label] = 'NO STORED ACCOUNT'; showStatuses(); return {ok: false, error: 'no stored account'}; }
   let last;
   for (let tries = 1; tries <= 6; tries++) {
-    $('delivery').textContent = `Sending "${label}" to server (try ${tries})…`;
+    statuses[label] = `sending (try ${tries})…`; showStatuses();
     ensureEvents();
+    for (let i = 0; i < 100 && events.info().state !== 'live'; i++) await sleep(100);
     last = await wait(voice.sendLog(label, text), 20000);
-    if (last.ok) { $('delivery').textContent = `delivered to server \u2713 (${label}, try ${tries}, ${new Date().toLocaleTimeString()})`; return {ok: true, tries}; }
+    if (last.ok) { statuses[label] = `delivered ${String.fromCharCode(10003)} (try ${tries})`; showStatuses(); return {ok: true, tries}; }
     log('deliver', `${label} try ${tries} failed: ${last.error}`);
-    $('delivery').textContent = `NOT delivered (${label}: ${last.error}); retrying…`;
+    statuses[label] = `NOT delivered yet (${last.error}), retrying`; showStatuses();
     await sleep(2000 * tries);
   }
-  $('delivery').textContent = `NOT delivered (${label}: ${last.error}). Tap Copy and paste it to the agent.`;
-  return {ok: false, tries: 6, error: last.error};
+  statuses[label] = `NOT delivered (${last.error})`; showStatuses();
+  return {ok: false, error: last.error};
 }
+let chain = Promise.resolve();
+/** Fire-and-forget progress report after a step; chained so they arrive in order. */
+function checkpoint(label, route) { const text = `step: ${step}\n` + reportText(route, false); chain = chain.then(() => deliver(label, text)); }
+setInterval(() => { if (step !== 'idle' && step !== 'done' && performance.now() - stepMs > 25000 && !statuses[`voicecmd-stall-${step}`]) { statuses[`voicecmd-stall-${step}`] = 'stalled, reporting'; checkpoint(`voicecmd-stall-${step.slice(0, 30)}`, '?'); } }, 5000);
 document.addEventListener('visibilitychange', () => log('page', 'visibility ' + document.visibilityState));
 const reportText = (route, final) => `voicecmd ${final ? 'FINAL' : 'partial'} ${new Date().toISOString()}\noutput route (user says): ${route}\n${JSON.stringify(features())}\n\n${modes.map(modeLine).join('\n')}\n\n${out.slice(-30).join('\n')}`;
 function render(route) { $('results').textContent = reportText(route, false); }
@@ -158,33 +174,43 @@ function ensureEvents() {
 async function start() {
   $('start').disabled = true;
   const route = document.querySelector('input[name=route]:checked').value;
-  audio.src = SILENCE; audio.play().then(() => audio.pause(), () => {});   // iOS: prime the element inside the tap
+  // All gesture-bound work happens synchronously here: prime the audio element with the real clip, create and resume the AudioContext, request the mic.
+  try { navigator.audioSession.type = 'play-and-record'; } catch { /* unsupported */ }
+  audio.src = 'speech.m4a'; audio.muted = true;
+  audio.play().then(() => { audio.pause(); audio.muted = false; audio.currentTime = 0; log('audio', 'primed in tap'); }, e => { audio.muted = false; log('audio', 'prime failed ' + e.name); });
+  const ctx = new AudioContext(); ctx.resume();
+  const first = mediaFor(true); first.catch(() => {});
+  setStep('start');
   if (voice) ensureEvents();
-  await sleep(300);
-  deliver('voicecmd-start', reportText(route, false));
-  audio.src = 'speech.m4a'; audio.load();
+  checkpoint('voicecmd-start', route);
   try {
-    for (const aec of [true, false]) { modes.push(await runMode(aec, route)); }
+    await runMode(true, route, ctx, first);
+    await runMode(false, route, ctx, mediaFor(false));
   } catch (e) {
     log('error', `${e.name} ${e.message}`);
-    $('prompt').textContent = `Failed: ${e.name} ${e.message}`;
+    $('prompt').textContent = `Failed at "${step}": ${e.message || e.name}`;
     $('results').textContent = reportText(route, false);
-    await deliver('voicecmd-error', reportText(route, false));
+    chain = chain.then(() => deliver('voicecmd-error', `step: ${step}\nERROR ${e.name} ${e.message}\n` + reportText(route, false)));
+    await chain;
+    $('start').disabled = false;
     return;
   }
+  setStep('measurements done');
   $('prompt').textContent = 'Done speaking. Sending measurements, then transcribing…';
-  window.__voicecmd.mid = await deliver('voicecmd-measurements', reportText(route, false));
+  checkpoint('voicecmd-measurements', route);
   if (voice) {
     for (const m of modes) {
       m.transcripts = {};
-      for (const id of Object.keys(m.clips)) { const r = await wait(voice.stt(m.clips[id]), 30000); m.transcripts[id] = r.ok ? r.text : 'ERROR ' + r.error; render(route); }
+      for (const id of Object.keys(m.clips)) { setStep(`stt ${id}`); const r = await wait(voice.stt(m.clips[id]), 30000); m.transcripts[id] = r.ok ? r.text : 'ERROR ' + r.error; render(route); }
     }
   }
   const text = reportText(route, true);
   $('results').textContent = text;
   window.__voicecmd.text = text;
+  await chain;
+  setStep('done');
   const sent = await deliver('voicecmd', text);
-  $('prompt').textContent = sent.ok ? 'Done. Report delivered to the server (confirmed). Now run again with the other output (speaker / earbuds).' : `Done. NOT delivered (${sent.error}); use Copy.`;
+  $('prompt').textContent = sent.ok ? 'Done. FINAL report delivered to the server \u2713. Now run again with the other output (speaker / earbuds).' : `Done. NOT delivered (${sent.error}); use Copy.`;
   window.__voicecmd.done = true; window.__voicecmd.sent = sent;
   $('start').disabled = false; $('start').textContent = 'Run again';
 }
