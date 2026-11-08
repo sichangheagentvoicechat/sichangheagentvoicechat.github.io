@@ -1,13 +1,13 @@
 /** Wires the model, Zulip events, voice service, player, recorder and DOM. Behavior is described in `../docs/v2/design.md`. */
-import {createLog} from './log.mjs?v=64121f68d9';
-import {createZulip, createEvents} from './zulip.mjs?v=64121f68d9';
-import {createVoice} from './voice.mjs?v=64121f68d9';
-import {createPlayer} from './player.mjs?v=64121f68d9';
-import {createRecorder} from './recorder.mjs?v=64121f68d9';
-import {createModel, parsed, itemsOf} from './model.mjs?v=64121f68d9';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=64121f68d9';
+import {createLog} from './log.mjs?v=f0c7c5b82f';
+import {createZulip, createEvents} from './zulip.mjs?v=f0c7c5b82f';
+import {createVoice} from './voice.mjs?v=f0c7c5b82f';
+import {createPlayer} from './player.mjs?v=f0c7c5b82f';
+import {createRecorder} from './recorder.mjs?v=f0c7c5b82f';
+import {createModel, parsed, itemsOf} from './model.mjs?v=f0c7c5b82f';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=f0c7c5b82f';
 
-const BUILD = 'v2.0-64121f68d9';
+const BUILD = 'v2.0-f0c7c5b82f';
 const ACCOUNT_KEY = 'zulip-voice-account';
 const $ = id => document.getElementById(id);
 const store = {
