@@ -1,13 +1,13 @@
 /** Wires the model, Zulip events, voice service, player, recorder and DOM. Behavior is described in `../docs/v2/design.md`. */
-import {createLog} from './log.mjs?v=b148f99249';
-import {createZulip, createEvents} from './zulip.mjs?v=b148f99249';
-import {createVoice} from './voice.mjs?v=b148f99249';
-import {createPlayer} from './player.mjs?v=b148f99249';
-import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=b148f99249';
-import {createModel, parsed, itemsOf} from './model.mjs?v=b148f99249';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=b148f99249';
+import {createLog} from './log.mjs?v=ebafbbb9f5';
+import {createZulip, createEvents} from './zulip.mjs?v=ebafbbb9f5';
+import {createVoice} from './voice.mjs?v=ebafbbb9f5';
+import {createPlayer} from './player.mjs?v=ebafbbb9f5';
+import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=ebafbbb9f5';
+import {createModel, parsed, itemsOf} from './model.mjs?v=ebafbbb9f5';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=ebafbbb9f5';
 
-const BUILD = 'v2.0-b148f99249';
+const BUILD = 'v2.0-ebafbbb9f5';
 const ACCOUNT_KEY = 'zulip-voice-account';
 const $ = id => document.getElementById(id);
 const store = {
@@ -73,9 +73,9 @@ async function ensureRelayMuted(zulip, relayStreamId) {
   if (!sub) { log('app', 'relay channel not subscribed'); return false; }
   // 🧑 "I'm still getting push&email notification for the ping channel and email for stt"
   // Posting auto-follows a topic, and followed topics notify even in a muted channel; muting each relay topic stops that.
-  if (!store.get('voice2-relay-topics-muted', false)) {
-    const muted = await Promise.all(['ping', 'stt', 'tts', 'log', 'ack'].map(topic => zulip.call('POST', 'user_topics', {stream_id: relayStreamId, topic, visibility_policy: 1})));
-    if (muted.every(r => r.ok)) store.set('voice2-relay-topics-muted', true);
+  if (!store.get('voice2-relay-topics-muted-2', false)) {
+    const muted = await Promise.all(['ping', 'stt', 'tts', 'log', 'ack', 'send', 'result'].map(topic => zulip.call('POST', 'user_topics', {stream_id: relayStreamId, topic, visibility_policy: 1})));
+    if (muted.every(r => r.ok)) store.set('voice2-relay-topics-muted-2', true);
   }
   const props = ['push_notifications', 'desktop_notifications', 'audible_notifications', 'email_notifications', 'wildcard_mentions_notify'];
   if (sub.is_muted && props.every(p => sub[p] === false)) return true;
