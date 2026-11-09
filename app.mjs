@@ -1,13 +1,13 @@
 /** Wires the model, Zulip events, voice service, player, recorder and DOM. Behavior is described in `../docs/v2/design.md`. */
-import {createLog} from './log.mjs?v=456b9a8a62';
-import {createZulip, createEvents} from './zulip.mjs?v=456b9a8a62';
-import {createVoice} from './voice.mjs?v=456b9a8a62';
-import {createPlayer} from './player.mjs?v=456b9a8a62';
-import {createRecorder} from './recorder.mjs?v=456b9a8a62';
-import {createModel, parsed, itemsOf} from './model.mjs?v=456b9a8a62';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=456b9a8a62';
+import {createLog} from './log.mjs?v=6d03dc87f1';
+import {createZulip, createEvents} from './zulip.mjs?v=6d03dc87f1';
+import {createVoice} from './voice.mjs?v=6d03dc87f1';
+import {createPlayer} from './player.mjs?v=6d03dc87f1';
+import {createRecorder} from './recorder.mjs?v=6d03dc87f1';
+import {createModel, parsed, itemsOf} from './model.mjs?v=6d03dc87f1';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=6d03dc87f1';
 
-const BUILD = 'v2.0-456b9a8a62';
+const BUILD = 'v2.0-6d03dc87f1';
 const ACCOUNT_KEY = 'zulip-voice-account';
 const $ = id => document.getElementById(id);
 const store = {
@@ -111,6 +111,8 @@ const player = createPlayer({
   onItemEnd(item) {
     if (!item.last) return;
     store.set('voice2-pos', null); if (pausedItem?.msgId === item.msgId) pausedItem = null;
+    const played = model.find(item.msgId), wasUnread = played && !played.flags?.includes('read');
+    if (wasUnread && !pendingSwitch && parsed(played).switchTo) pendingSwitch = {to: parsed(played).switchTo, msgId: item.msgId};   // also for messages played from the backlog after a reload
     markRead([item.msgId]);
     if (pendingSwitch?.msgId === item.msgId) runSwitch();
   },
@@ -534,15 +536,25 @@ function runSwitch() {
 }
 
 /** Topics ranked by how well they match `query` ("terminal viz" finds terminal_viz); most recent first when the query is empty. */
+const ABBREVIATIONS = {mgr: 'manager', manager: 'mgr', viz: 'visualization', impl: 'implementation', cfg: 'config', config: 'cfg', dev: 'developer', ops: 'operations', eval: 'evaluation', exp: 'experiment', doc: 'documentation', docs: 'documentation', repo: 'repository', infra: 'infrastructure', ui: 'uiclient', pr: 'pullrequest', ci: 'continuous', ml: 'machinelearning', db: 'database'};
+/** 0..1: how well every spoken word matches some word of the topic name ("human manager" ~ human_mgr), allowing abbreviations, prefixes and initials. */
+function tokenScore(query, name) {
+  const qs = normalize(query).split(' ').filter(Boolean), ns = normalize(name.replace(/[_-]/g, ' ')).split(' ').filter(Boolean);
+  if (!qs.length || !ns.length) return 0;
+  const same = (a, b) => a === b || ABBREVIATIONS[a] === b || ABBREVIATIONS[b] === a || (a.length >= 3 && b.startsWith(a)) || (b.length >= 3 && a.startsWith(b)) || (ABBREVIATIONS[b] && ABBREVIATIONS[b].startsWith(a) && a.length >= 3) || (ABBREVIATIONS[a] && ABBREVIATIONS[a].startsWith(b) && b.length >= 3) || (a.length >= 4 && editDistance(a, b) <= 1);
+  const matched = qs.filter(q => ns.some(n => same(q, n))).length / qs.length;
+  const cover = ns.filter(n => qs.some(q => same(q, n))).length / ns.length;
+  return matched === 1 ? 0.7 + 0.3 * cover : matched * 0.7;
+}
 function rankTopics(query) {
   const q = normalize(query), qFlat = q.replace(/ /g, '');
   const topics = model.topics();
   if (!qFlat) return topics.map(t => ({t, score: 1}));
   return topics.map(t => {
     const name = normalize(t.name.replace(/[_-]/g, ' ')), flat = name.replace(/ /g, '');
-    const score = flat === qFlat ? 1 : flat.includes(qFlat) ? 0.9 : q.split(' ').every(w => name.includes(w)) ? 0.8 : 1 - editDistance(flat.slice(0, qFlat.length + 2), qFlat) / Math.max(qFlat.length, 1);
+    const score = Math.max(tokenScore(query, t.name), 0) > 0 && tokenScore(query, t.name) >= 0.85 ? tokenScore(query, t.name) : flat === qFlat ? 1 : flat.includes(qFlat) ? 0.9 : q.split(' ').every(w => name.includes(w)) ? 0.8 : 1 - editDistance(flat.slice(0, qFlat.length + 2), qFlat) / Math.max(qFlat.length, 1);
     return {t, score};
-  }).filter(x => x.score >= 0.55).sort((a, b) => b.score - a.score || b.t.maxId - a.t.maxId);
+  }).filter(x => x.score >= 0.4).sort((a, b) => b.score - a.score || b.t.maxId - a.t.maxId);
 }
 
 function openPicker() {
@@ -714,7 +726,7 @@ function onBarge() {
   if (dict) return;
   const st = player.position().status;
   log('vc', `speech detected while ${st}${vc ? ' (session open)' : ''}`);
-  utterancePending = true; clearTimeout(utteranceTimer); utteranceTimer = setTimeout(utteranceDone, 15000);
+  utterancePending = true; clearTimeout(utteranceTimer); utteranceTimer = setTimeout(utteranceDone, 6000);
   if (vc) { clearTimeout(vc.timer); clearTimeout(vc.emptyTimer); vc.timer = vc.emptyTimer = 0; }
   setVcState('heard', 'hearing you');
 }
@@ -723,7 +735,19 @@ async function onCommandClip(blob, meta = {}) {
   try { await handleCommandClip(blob, meta); } finally { utterancePending = false; clearTimeout(utteranceTimer); if (!userSpeaking()) maybeAutoplay(); }
 }
 const START_MIN_SPEECH_MS = 250, START_MAX_NO_SPEECH = 0.6, START_MIN_LOGPROB = -1.0;
+const UPLOADS_PER_MIN = 8, EMPTY_RUN_BACKOFF = 3, BACKOFF_MS = 60000;
+let startWordUploads = [], emptyRun = 0, backoffUntil = 0;
+/** Every start-word clip costs a Zulip upload plus messages: cap them, and back off in a noisy room instead of exhausting the rate limit. */
+function noteStartResult(useful) {
+  emptyRun = useful ? 0 : emptyRun + 1;
+  if (emptyRun >= EMPTY_RUN_BACKOFF && Date.now() > backoffUntil) { backoffUntil = Date.now() + BACKOFF_MS; recorder.setBackoff(true); log('vc', `noisy room: ${emptyRun} useless clips in a row, stricter detection for 60 s`); setTimeout(() => { recorder.setBackoff(false); emptyRun = 0; }, BACKOFF_MS); }
+}
 async function handleCommandClip(blob, meta) {
+  if (!vc && !pendingChoice) {
+    startWordUploads = startWordUploads.filter(t => Date.now() - t < 60000);
+    if (startWordUploads.length >= UPLOADS_PER_MIN || zulip.rateLimitedForMs() > 0) { log('vc', `dropped a clip without uploading (${startWordUploads.length} uploads this minute${zulip.rateLimitedForMs() ? ', Zulip rate limit' : ''})`); recorder.setReplyMode(false); vcIdle(); return; }
+    startWordUploads.push(Date.now());
+  }
   const listening = !!vc || (!!pendingChoice && Date.now() < pendingChoice.until);
   // The "Pause. Over." hint only helps inside an open reply or a question; for start-word detection it can make Whisper hear "Pause." in noise.
   const r = await voice.stt(blob, listening ? VC_PROMPT : undefined, !listening);   // start-word clips also get keyword spotting on the server
@@ -733,7 +757,7 @@ async function handleCommandClip(blob, meta) {
   if (!listening && normalize(heard) && ((meta.speechMs ?? 1e9) < START_MIN_SPEECH_MS || r.noSpeechProb > START_MAX_NO_SPEECH || r.avgLogprob < START_MIN_LOGPROB)) {
     log('vc', 'rejected as noise: too short or low confidence'); recorder.setReplyMode(false); resumeBarge(); vcIdle(); return;
   }
-  if (!normalize(heard)) { if (!vc) { recorder.setReplyMode(false); resumeBarge(); } else armSessionTimer(); vcIdle(); return; }   // noise must not cancel the end-of-reply timer for good
+  if (!normalize(heard)) { if (!vc) { noteStartResult(false); recorder.setReplyMode(false); resumeBarge(); } else armSessionTimer(); vcIdle(); return; }   // noise must not cancel the end-of-reply timer for good
   if (pendingChoice && Date.now() < pendingChoice.until) {   // while a switch question is open, answers are matched first, even inside or after "pause"
     const w = normalize(heard).replace(/^((pause|paws|pulse|pose) )+/, '');
     const NUMBERS = ['one first 1', 'two second 2', 'three third 3'];
@@ -748,11 +772,12 @@ async function handleCommandClip(blob, meta) {
   if (!vc) {
     // With server keyword spotting on (r.kws is a list): it must have heard PAUSE, and Whisper must confirm the standalone word, so "paused"/"paws" never open a session.
     const kwsOn = Array.isArray(r.kws) && Date.now() - lastReplyEndMs >= FOLLOW_UP_GRACE_MS;   // a follow-up right after a send needs no start word
-    if (kwsOn && !r.kws.includes('PAUSE')) { log('vc', `ignored: "${heard}" (keyword spotter did not hear pause)`); resumeBarge(); recorder.setReplyMode(false); vcIdle(); return; }
+    if (kwsOn && !r.kws.includes('PAUSE')) { noteStartResult(false); log('vc', `ignored: "${heard}" (keyword spotter did not hear pause)`); resumeBarge(); recorder.setReplyMode(false); vcIdle(); return; }
     let rest = afterStartWord(heard);
     if (kwsOn && rest !== null && !/^(pause|pulse|pulls|polls|pawz)\b/i.test(normalize(heard))) { log('vc', `ignored: "${heard}" (transcript is not the word pause)`); rest = null; resumeBarge(); recorder.setReplyMode(false); vcIdle(); return; }
     if (rest === null && Date.now() - lastReplyEndMs < FOLLOW_UP_GRACE_MS) { log('vc', `follow-up right after a send: "${heard}"`); openSession(''); addToSession(heard); return; }
-    if (rest === null) { resumeBarge(); log('vc', `ignored: "${heard}" (no start word)`); toast(`Ignored (no start word): ${heard.slice(0, 60)}`); recorder.setReplyMode(false); vcIdle(); return; }
+    if (rest === null) { noteStartResult(false); resumeBarge(); log('vc', `ignored: "${heard}" (no start word)`); toast(`Ignored (no start word): ${heard.slice(0, 60)}`); recorder.setReplyMode(false); vcIdle(); return; }
+    noteStartResult(true);
     openSession(rest);
     return;
   }
@@ -770,7 +795,7 @@ async function handleCommandClip(blob, meta) {
   if (SWITCH_BACK_RE.test(normalize(heard))) { clearTimeout(vc.timer); clearTimeout(vc.emptyTimer); draftEl.value = vc.base; autosize(); vc = null; recorder.setReplyMode(false); bargePaused = false; switchBack(); vcIdle(); return; }
   const sw = normalize(heard).match(SWITCH_RE);   // inside an open reply, a whole utterance "switch agent to X" is a command, not reply text
   if (CANCEL_RE.test(normalize(heard))) { cancelSession(); return; }   // discards this reply and carries on
-  if (sw && ranksConfident(sw[1])) {
+  if (sw) {
     clearTimeout(vc.timer); clearTimeout(vc.emptyTimer);
     log('vc', 'switch command inside an open session');
     draftEl.value = vc.base; autosize();
@@ -817,8 +842,8 @@ const ranksConfident = spoken => (rankTopics(spoken)[0]?.score ?? 0) >= SWITCH_M
 function voiceSwitch(spoken) {
   const ranked = rankTopics(spoken);
   log('vc', `switch to "${spoken}" -> ${ranked.slice(0, 3).map(x => `${x.t.name}:${x.score.toFixed(2)}`).join(', ') || 'no match'}`);
-  if (!ranked.length || ranked[0].score < SWITCH_MIN_SCORE) { log('vc', 'no confident agent match: treated as ordinary words'); return false; }
-  const clear = ranked.length === 1 || ranked[0].score - ranked[1].score >= 0.15;
+  if (!ranked.length) { log('vc', 'no agent matches'); recorder.beep('error'); toast(`No agent called “${spoken}”`); sayAndMute(`No agent called ${spoken}`); return false; }
+  const clear = ranked[0].score >= SWITCH_MIN_SCORE && (ranked.length === 1 || ranked[0].score - ranked[1].score >= 0.15);
   pendingChoice = {names: clear ? [ranked[0].t.name] : ranked.slice(0, 3).map(x => x.t.name), until: Date.now() + 20000, confirm: clear};
   setTimeout(() => { if (pendingChoice && Date.now() >= pendingChoice.until) cancelChoice(); }, 20500);
   const readable = n => n.replace(/[_-]/g, ' ');
@@ -838,7 +863,7 @@ function openSession(rest) {
   const words = normalize(rest);
   if (SWITCH_BACK_RE.test(words)) { log('vc', 'switch back to the previous agent'); vc = null; recorder.setReplyMode(false); bargePaused = false; switchBack(); vcIdle(); return; }
   const sw = words.match(SWITCH_RE);
-  if (sw && ranksConfident(sw[1])) { vc = null; recorder.setReplyMode(false); voiceSwitch(sw[1]); vcIdle(); return; }
+  if (sw) { vc = null; recorder.setReplyMode(false); voiceSwitch(sw[1]); vcIdle(); return; }   // a switch phrase is never sent as a reply
   if (CANCEL_RE.test(words)) { log('vc', 'cancel right after the start word'); vc = null; recorder.setReplyMode(false); recorder.beep('cancel'); resumeAfterPause(); vcIdle(); return; }
   const nav = navCommand(words);
   if (nav) { vc = null; recorder.setReplyMode(false); navigate(nav); vcIdle(); return; }
