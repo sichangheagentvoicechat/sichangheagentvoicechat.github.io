@@ -1,15 +1,15 @@
 /** Wires the model, Zulip events, voice service, player, recorder and DOM. Behavior is described in `../docs/v2/design.md`. */
-import {createLog} from './log.mjs?v=b150681417';
-import {createLatency} from './latency.mjs?v=b150681417';
-import {createKeywordSpotter} from './kws.mjs?v=b150681417';
-import {createZulip, createEvents} from './zulip.mjs?v=b150681417';
-import {createVoice} from './voice.mjs?v=b150681417';
-import {createPlayer} from './player.mjs?v=b150681417';
-import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=b150681417';
-import {createModel, parsed, itemsOf} from './model.mjs?v=b150681417';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=b150681417';
+import {createLog} from './log.mjs?v=77115573d5';
+import {createLatency} from './latency.mjs?v=77115573d5';
+import {createKeywordSpotter} from './kws.mjs?v=77115573d5';
+import {createZulip, createEvents} from './zulip.mjs?v=77115573d5';
+import {createVoice} from './voice.mjs?v=77115573d5';
+import {createPlayer} from './player.mjs?v=77115573d5';
+import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=77115573d5';
+import {createModel, parsed, itemsOf} from './model.mjs?v=77115573d5';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=77115573d5';
 
-const BUILD = 'v2.0-b150681417';
+const BUILD = 'v2.0-77115573d5';
 const ACCOUNT_KEY = 'zulip-voice-account';
 const $ = id => document.getElementById(id);
 const store = {
@@ -514,6 +514,7 @@ function switchTopic(topic) {
 let announcingUntil = 0;
 /** Earcon plus "Now on <agent>", so a switch to an agent with nothing to play is still noticeable; unread messages play afterwards. */
 function announceSwitch(topic) {
+  if (!voiceControl) return;   // silent (visual only) unless voice control is on
   recorder.beep('switch');
   announcingUntil = Date.now() + 4000;
   recorder.muteFor(3500);
