@@ -1,16 +1,16 @@
 /** Wires the model, Zulip events, voice service, player, recorder and DOM. Behavior is described in `../docs/v2/design.md`. */
-import {createLog} from './log.mjs?v=95d67b1176';
-import {createLatency} from './latency.mjs?v=95d67b1176';
-import {createKeywordSpotter} from './kws.mjs?v=95d67b1176';
-import {createZulip, createEvents} from './zulip.mjs?v=95d67b1176';
-import {createVoice} from './voice.mjs?v=95d67b1176';
-import {createPlayer} from './player.mjs?v=95d67b1176';
-import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=95d67b1176';
-import {stripTrailingControl, leadingControlCount, DOMAIN_PROMPT} from './text.mjs?v=95d67b1176';
-import {createModel, parsed, itemsOf} from './model.mjs?v=95d67b1176';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=95d67b1176';
+import {createLog} from './log.mjs?v=661412ff5a';
+import {createLatency} from './latency.mjs?v=661412ff5a';
+import {createKeywordSpotter} from './kws.mjs?v=661412ff5a';
+import {createZulip, createEvents} from './zulip.mjs?v=661412ff5a';
+import {createVoice} from './voice.mjs?v=661412ff5a';
+import {createPlayer} from './player.mjs?v=661412ff5a';
+import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=661412ff5a';
+import {stripTrailingControl, leadingControlCount, DOMAIN_PROMPT} from './text.mjs?v=661412ff5a';
+import {createModel, parsed, itemsOf} from './model.mjs?v=661412ff5a';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=661412ff5a';
 
-const BUILD = 'v2.0-95d67b1176';
+const BUILD = 'v2.0-661412ff5a';
 const ACCOUNT_KEY = 'zulip-voice-account';
 const $ = id => document.getElementById(id);
 const store = {
