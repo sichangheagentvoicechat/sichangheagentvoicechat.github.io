@@ -1,5 +1,5 @@
 /** Conversation state (pure data, no DOM, no network): messages per topic, unread, play queues. */
-import {parseAgentMessage, messageChunks} from './text.mjs?v=406517b11f';
+import {parseAgentMessage, messageChunks} from './text.mjs?v=5d6794f73e';
 
 const parsedCache = new WeakMap();
 
@@ -71,7 +71,7 @@ export function createModel({botId, humanId}) {
       const names = [current, ...this.topics().map(t => t.name).filter(n => n !== current)];
       for (const name of names) {
         if (budget <= 0) break;
-        msgs[name] = this.messages(name).filter(m => !m.local).slice(-Math.min(name === current ? 50 : 20, budget)).map(({id, sender_id, subject, content, timestamp, flags}) => ({id, sender_id, subject, content, timestamp, flags}));
+        msgs[name] = this.messages(name).filter(m => !m.local).slice(-Math.min(name === current ? 50 : 20, budget)).map(({id, sender_id, subject, content, timestamp, flags, stream_id, t0}) => ({id, sender_id, subject, content, timestamp, flags, ...(t0 !== undefined ? {stream_id, t0} : {})}));
         budget -= msgs[name].length;
       }
       return {topics: this.topics().slice(0, 150), msgs, current};
