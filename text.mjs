@@ -204,6 +204,7 @@ export function assembleReply(texts, {cancelWord = 'bamboo', commandWord = 'kata
   for (const raw of texts) {
     const words = tokens(raw ?? '');
     if (words.some(w => flat(w) === cancelWord || soundsLikeWord(cancelWord, [flat(w)]))) return {text: '', discard: true, why: 'cancel word'};
+    if (words.some(w => soundsLikeWord('kangaroo', [flat(w)]))) return {text: '', discard: true, why: 'retired end word (command speech)'};   // "kangaroo" no longer ends a reply: hearing it (Cangaroo, Canguro) means control speech, so nothing is sent
     const at = words.findIndex(w => flat(w) === commandWord || soundsLikeWord(commandWord, [flat(w)]));
     const kept = stripTrailingControl(removeControlWords(stripTrailingControl(at >= 0 ? words.slice(0, at) : words, 'tomato', ['over'])), 'kangaroo');
     if (kept.length) parts.push(kept.join(' '));

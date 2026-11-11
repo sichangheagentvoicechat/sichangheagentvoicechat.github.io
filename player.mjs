@@ -134,7 +134,7 @@ export function createPlayer({log, voice, onItemStart, onItemEnd, onIdle, onStat
     warming = false;
   }
 
-  async function playIndex(i, attempt = 0) {
+  async function playIndex(i, attempt = 0, auto = false) {
     const myGen = ++gen;
     index = i;
     const item = items[i];
@@ -152,10 +152,20 @@ export function createPlayer({log, voice, onItemStart, onItemEnd, onIdle, onStat
       return;
     }
     if (status === 'paused') { active = r.slot; r.slot.el.currentTime = r.seekMs / 1000; r.slot.chunk = {endMs: r.bundle.endMs}; return; }
-    start(r.slot, myGen, r.seekMs, r.bundle);
+    start(r.slot, myGen, r.seekMs, r.bundle, auto);
   }
 
-  function start(slot, myGen, seekMs, bundle) {
+  function start(slot, myGen, seekMs, bundle, auto = false) {
+    if (auto && bundle && !slot.el.paused && pausedMs === null) {   // chunk-to-chunk inside one playing bundle: the audio clock decides, never the timer (a starved timer must not replay or desync)
+      const cur = slot.el.currentTime * 1000;
+      if (cur >= bundle.endMs - 25 && items[index + 1]) {   // the timer was late and the audio already passed this whole chunk: it was heard, move on
+        const done = index, before = gen; log('audio', `late: chunk ${items[done]?.key} already passed (${Math.round(cur - bundle.endMs)}ms ago)`);
+        clips.delete(done); onItemStart?.(items[done], done); onItemEnd?.(items[done], done);
+        if (gen === before) playIndex(done + 1, 0, true);
+        return;
+      }
+      if (cur >= seekMs - 120 && cur < bundle.endMs - 25) seekMs = cur;   // already inside this chunk: keep playing, do not jump back
+    }
     if (pausedMs !== null && seekMs !== undefined && (!bundle || pausedMs - RESUME_BACKUP_MS < bundle.endMs)) { seekMs = Math.max(seekMs, pausedMs - RESUME_BACKUP_MS); }
     pausedMs = null;
     for (const s of slots) if (s !== slot) { s.appPause = true; s.el.pause(); }
@@ -185,7 +195,7 @@ export function createPlayer({log, voice, onItemStart, onItemEnd, onIdle, onStat
     const before = gen;
     onItemEnd?.(items[done], done);
     if (gen !== before) return; // `onItemEnd` replaced the queue
-    playIndex(done + 1);
+    playIndex(done + 1, 0, true);
   }
 
   for (const slot of slots) {
@@ -205,7 +215,11 @@ export function createPlayer({log, voice, onItemStart, onItemEnd, onIdle, onStat
 
   setInterval(() => {   // chunk boundaries inside a bundle
     if (status !== 'playing' || !active?.chunk || active.el.paused) return;
-    if (active.el.currentTime * 1000 >= active.chunk.endMs - 25) { active.chunk = null; itemEnded(); } else warmNext();
+    if (active.el.currentTime * 1000 >= active.chunk.endMs - 25) {
+      const next = items[index + 1], nb = next && bundleOf(next);
+      if (!nb || active.bundleId !== variantId(nb.part) || Math.abs(nb.startMs - active.chunk.endMs) > 60) { active.appPause = true; active.el.pause(); }   // the next chunk is not the audio that follows: never let the old bundle play on under the next highlight
+      active.chunk = null; itemEnded();
+    } else warmNext();
   }, 40);
 
   setInterval(() => {
@@ -290,6 +304,13 @@ export function createPlayer({log, voice, onItemStart, onItemEnd, onIdle, onStat
     setRate(value) { rate = value; for (const s of slots) { s.el.playbackRate = value; s.el.defaultPlaybackRate = value; } },
     currentTime: () => (status === 'playing' || status === 'paused') && active ? active.el.currentTime : 0,
     position: () => ({index, status, queued: items.length}),
+    /** Key of the chunk the audio clock is in right now (null when not playing from a known bundle). */
+    audible() {
+      if (status !== 'playing' || !active || active.el.paused) return null;
+      const t = active.el.currentTime * 1000;
+      for (let j = Math.max(0, index - 2); j < Math.min(items.length, index + 4); j++) { const b = bundleOf(items[j]); if (b && active.bundleId === variantId(b.part) && t >= b.startMs - 1 && t < b.endMs) return items[j].key; }
+      return null;
+    },
     snapshot: () => ({status, index, queued: items.length, rate, unlocked, slots: slots.map(s => ({bundle: s.bundleId?.slice(-12), ready: s.ready, paused: s.el.paused, t: +s.el.currentTime.toFixed(1), rs: s.el.readyState})), clips: clips.size}),
   };
 }

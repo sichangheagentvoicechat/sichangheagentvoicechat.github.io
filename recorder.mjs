@@ -66,7 +66,7 @@ export const EARCON_NOTES = {ready: [880, 1320], done: [1320, 880], error: [220,
 export function createRecorder({log, onClip, onLevel, onBarge, onCommandClip, onEarcon, onKwsAudio, onSpeechOnset}) {
   /** Every change of the iOS audio session type goes through here and is logged (`route ...`): changes make the output volume jump. */
   const setSession = type => { try { if (navigator.audioSession.type !== type) { navigator.audioSession.type = type; log('route', `audioSession.type -> ${type}`); } } catch { /* unsupported */ } };
-  let epoch = 0, ctx = null, stream = null, node = null, sourceNode = null, warm = null, capturing = false, listening = false, replyMode = false, backoff = false, earconUntilMs = 0, sustainMs = 0, idleTimer = 0;
+  let epoch = 0, ctx = null, stream = null, node = null, sourceNode = null, warm = null, capturing = false, listening = false, replyMode = false, backoff = false, earconUntilMs = 0, speechMuteUntilMs = 0, sustainMs = 0, idleTimer = 0;
   let frames = [], preroll = [], speechMs = 0, silentMs = 0, clipMs = 0, noise = 0.004, clipsOut = 0;
 
   function cut(final) {
@@ -88,7 +88,7 @@ export function createRecorder({log, onClip, onLevel, onBarge, onCommandClip, on
 
   function onFrame(frame) {
     if (!ctx || (!capturing && !listening)) return;   // frames after stop(), or while idle in the grace period
-    if (listening && !capturing && onKwsAudio && performance.now() >= earconUntilMs) onKwsAudio(toKwsRate(frame));
+    if (listening && !capturing && onKwsAudio && performance.now() >= speechMuteUntilMs) onKwsAudio(toKwsRate(frame));
     const ms = frame.length / ctx.sampleRate * 1000;
     let sum = 0;
     for (let i = 0; i < frame.length; i++) sum += frame[i] * frame[i];
@@ -204,7 +204,7 @@ export function createRecorder({log, onClip, onLevel, onBarge, onCommandClip, on
       earconUntilMs = performance.now() + notes.length * EARCON_NOTE_S * 1000 + 250;
     },
     /** Ignore the microphone for `ms` (our own speech or chime is playing). */
-    muteFor(ms) { earconUntilMs = performance.now() + ms + 250; },
+    muteFor(ms) { earconUntilMs = speechMuteUntilMs = performance.now() + ms + 250; },
     /** Cuts the clip in progress right now and hands it over (a spotted end word does not wait for a pause in speech). */
     flush() { if (listening && !capturing && frames.length) { speechMs = Math.max(speechMs, replyMode ? REPLY_MIN_SPEECH_MS : MIN_SPEECH_MS); cut(true); } },
     /** Reply mode lowers the speech thresholds so short words are never dropped. */

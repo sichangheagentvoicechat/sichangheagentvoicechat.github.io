@@ -1,16 +1,16 @@
 /** Wires the model, Zulip events, voice service, player, recorder and DOM. Behavior is described in `../docs/v2/design.md`. */
-import {createLog} from './log.mjs?v=2b34adb321';
-import {createLatency} from './latency.mjs?v=2b34adb321';
-import {createKeywordSpotter} from './kws.mjs?v=2b34adb321';
-import {createZulip, createEvents} from './zulip.mjs?v=2b34adb321';
-import {createVoice} from './voice.mjs?v=2b34adb321';
-import {createPlayer} from './player.mjs?v=2b34adb321';
-import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=2b34adb321';
-import {looksLikeClippedEndWord, soundsLikeWord, soundsLike, removeControlWords, stripTrailingControl, leadingControlCount, DOMAIN_PROMPT} from './text.mjs?v=2b34adb321';
-import {createModel, parsed, itemsOf} from './model.mjs?v=2b34adb321';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=2b34adb321';
+import {createLog} from './log.mjs?v=79f21c498a';
+import {createLatency} from './latency.mjs?v=79f21c498a';
+import {createKeywordSpotter} from './kws.mjs?v=79f21c498a';
+import {createZulip, createEvents} from './zulip.mjs?v=79f21c498a';
+import {createVoice} from './voice.mjs?v=79f21c498a';
+import {createPlayer} from './player.mjs?v=79f21c498a';
+import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=79f21c498a';
+import {assembleReply, looksLikeClippedEndWord, soundsLikeWord, soundsLike, removeControlWords, stripTrailingControl, leadingControlCount, DOMAIN_PROMPT} from './text.mjs?v=79f21c498a';
+import {createModel, parsed, itemsOf} from './model.mjs?v=79f21c498a';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=79f21c498a';
 
-const BUILD = 'v2.0-2b34adb321';
+const BUILD = 'v2.0-79f21c498a';
 const ACCOUNT_KEY = 'zulip-voice-account';
 const $ = id => document.getElementById(id);
 const store = {
@@ -234,6 +234,7 @@ async function loadTopic(topic) {
   const r = await zulip.call('GET', 'messages', {narrow: topicQuery(topic), anchor: 'newest', num_before: 40, num_after: 0, apply_markdown: false});
   if (!r.ok) return [];
   const fresh = r.data.messages.map(ing).filter(m => model.add(m));
+  model.markRead([...readQueue]);   // our reads the server has not confirmed yet stay read
   model.markLoaded(topic);
   if (topic === current) { if (fresh.length === r.data.messages.length) hasEarlier = !r.data.found_oldest; for (const m of fresh) appendMessage(m); }
   return fresh;
@@ -259,6 +260,7 @@ async function loadRecent() {
     const x = await zulip.call('GET', 'messages', {narrow: [{operator: 'stream', operand: id}], anchor: 'newest', num_before: 300, num_after: 0, apply_markdown: false});
     if (x.ok) for (const m of x.data.messages) model.add(ing(m));
   }
+  model.markRead([...readQueue]);
 }
 
 async function loadChannels() {
@@ -285,6 +287,11 @@ async function onInit(state, isResync) {
   const unread = new Map();
   await loadChannels();
   for (const s of state.unread_msgs?.streams ?? []) if (s.stream_id === cfg.streamId || isOurChannel(s.stream_id)) unread.set(keyFor(s.stream_id, s.topic), s.unread_message_ids.length);
+  { const unreadIds = new Set(); for (const st of state.unread_msgs?.streams ?? []) for (const id of st.unread_message_ids ?? []) unreadIds.add(id);
+    const changed = model.reconcileUnread(unreadIds, m => model.isAgent(m) && !readQueue.has(m.id));   // cached copies the server no longer lists as unread were read elsewhere
+    if (changed.length) log('read', `${changed.length} cached messages were already read on the server`);
+    for (const id of [...readQueue]) if (!model.find(id)) { /* keep: still to confirm */ } }
+  flushRead();   // our own unconfirmed reads go out first
   const topicsLoaded = loadTopics(unread);
   if (!current) { await topicsLoaded; current = model.topics()[0]?.name ?? null; }
   if (current) {
@@ -324,8 +331,12 @@ function onEvent(event) {
     for (const id of event.message_ids ?? [event.message_id]) onMessageDeleted(id);
   } else if (event.type === 'update_message') {
     if (event.content !== undefined) onMessageEdited(event.message_id, event.content);
-  } else if (event.type === 'update_message_flags' && event.flag === 'read' && event.op === 'add') {
-    model.markRead(event.messages);
+  } else if (event.type === 'update_message_flags' && event.flag === 'read') {
+    if (event.op === 'add') {   // read on another device: never played here (a chunk already playing finishes, the rest of that message is dropped), no tone
+      model.markRead(event.messages);
+      for (const id of event.messages) { readQueue.delete(id); player.removeFuture(id); }
+      store.set('voice2-readq', [...readQueue]);
+    } else { model.markUnread(event.messages); }
     renderUnread();
   }
 }
@@ -351,6 +362,7 @@ const utteranceDone = () => { utterancePending = false; clearTimeout(utteranceTi
 
 function onNewAgentMessage(m) {
   if (takeReplacement(m)) return;
+  if (inheritReadFromDeleted(m)) return;
   lat.begin('play:' + m.id, 'playback', performance.now() - Math.max(0, Date.now() - m.timestamp * 1000));   // starts at the server's timestamp
   lat.stage('play:' + m.id, 'to-client');
   const items = itemsOf(m);
@@ -393,7 +405,10 @@ function onMessageEdited(id, content) {
 function onMessageDeleted(id) {
   const m = model.find(id); if (!m) return;
   const wasReading = reading(id), topic = m.subject;
-  model.remove(topic, id); els.get(id)?.remove(); els.delete(id); forgetReadState(id);
+  if (model.isAgent(m)) { recentlyDeleted.push({topic, content: m.content, read: !!m.flags?.includes('read') || wasReading && false, at: Date.now()}); if (recentlyDeleted.length > 10) recentlyDeleted.shift(); }
+  model.remove(topic, id);
+  { const d = recentlyDeleted.at(-1); if (d && d.read && d.topic === topic) for (const x of model.unreadAgentMessages(topic)) if (x.id > id && Math.abs(Date.now() - x.timestamp * 1000) <= REPLACEMENT_WINDOW_MS && inheritReadFromDeleted(x)) break; }   // the replacement was already here
+  els.get(id)?.remove(); els.delete(id); forgetReadState(id);
   log('app', `message ${id} deleted${wasReading ? ' while being read' : ''}`);
   player.removeFuture(id);
   if (wasReading && model.isAgent(m)) {
@@ -407,6 +422,20 @@ function onMessageDeleted(id) {
     }
   }
   renderUnread(); persist();
+}
+
+// ---- amh replaces a message by delete + new post: a replacement of an already-read message with (nearly) the same text is read too ----
+const recentlyDeleted = [];   // {topic, content, read, at}
+const words = t => new Set(normalize(t).split(' ').filter(w => w.length > 2));
+const similarText = (a, b) => { const x = words(a), y = words(b); if (!x.size || !y.size) return false; let n = 0; for (const w of x) if (y.has(w)) n++; return n / (x.size + y.size - n) >= 0.8; };
+/** True (and the message is marked read) when `m` replaces a read predecessor deleted within the window with near-identical text. */
+function inheritReadFromDeleted(m) {
+  const now = Date.now(), pred = recentlyDeleted.find(d => d.topic === m.subject && d.read && Math.abs(now - d.at) <= REPLACEMENT_WINDOW_MS && similarText(d.content, m.content));
+  if (!pred) return false;
+  log('app', `replacement ${m.id} of a read message with the same text: marked read`);
+  const i = recentlyDeleted.indexOf(pred); recentlyDeleted.splice(i, 1);
+  model.markRead([m.id]); readQueue.add(m.id); store.set('voice2-readq', [...readQueue]); flushRead(); renderUnread();
+  return true;
 }
 const REPLACEMENT_WINDOW_MS = 10000;
 /** A new agent message that replaces the one just deleted (same topic, within the window): read it from its start. */
@@ -598,8 +627,10 @@ async function flushRead() {
   const r = await zulip.call('POST', 'messages/flags', {messages: ids, op: 'add', flag: 'read'});
   if (r.ok) { for (const id of ids) readQueue.delete(id); store.set('voice2-readq', [...readQueue]); }
   flushing = false;
+  if (readQueue.size && r.ok) flushRead();   // ids added while this call was in flight (the last message ends moments after the previous one) go out now, not 15 s later
 }
 setInterval(flushRead, 15000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') flushRead(); });
 
 // ---- switching agents ----
 let previousTopic = store.get('voice2-prev', null);
@@ -615,7 +646,7 @@ function switchBack() {
   return true;
 }
 
-function switchTopic(topic) {
+function switchTopic(topic, confirmed = false) {
   lat.begin('switchfeed', 'switch-render');
   lat.finish('switch', 'switched');
   if (topic === current) { $('picker').close(); return; }
@@ -633,19 +664,27 @@ function switchTopic(topic) {
   $('picker').close();
   loading = model.messages(topic).length ? null : topic;
   lat.finish('switchfeed', model.messages(topic).length ? 'from-cache' : 'EMPTY-cache');
+  announceSwitch(topic, confirmed);   // before any playback starts: the click or "Now on X" is sequenced ahead of the messages, never over them
   if (model.messages(topic).length) maybeAutoplay();
   loadTopicUntilLoaded(topic);
   renderUnread();
-  announceSwitch(topic);
 }
 
 let announcingUntil = 0;
 /** Earcon plus "Now on <agent>", so a switch to an agent with nothing to play is still noticeable; unread messages play afterwards. */
-function announceSwitch(topic) {
+function announceSwitch(topic, confirmed = false) {
   if (!voiceControl) return;   // silent (visual only) unless voice control is on
+  const willPlay = model.unreadAgentMessages(topic).some(m => itemsOf(m).length);
+  if (confirmed) { recorder.beep('command'); log('vc', 'switch confirmed: click'); }   // heard at once: the same double click as entering command mode
+  if (confirmed && willPlay) {   // the messages start right after the click: "Now on X" would only delay or overlap them
+    const ms = EARCON_NOTES.command.length * EARCON_NOTE_S * 1000 + 300;
+    announcingUntil = Date.now() + ms; setTimeout(() => { if (current === topic) maybeAutoplay(); }, ms + 50);
+    return;
+  }
   announcingUntil = Date.now() + 4000;
   recorder.muteFor(3500);
-  player.say(`Now on ${topic}`).then(ms => { recorder.muteFor(ms); announcingUntil = Date.now() + ms + 300; setTimeout(() => { if (current === topic) maybeAutoplay(); }, ms + 350); });
+  const speak = () => player.say(`Now on ${topic}`).then(ms => { recorder.muteFor(ms); announcingUntil = Date.now() + ms + 300; setTimeout(() => { if (current === topic) maybeAutoplay(); }, ms + 350); });
+  if (confirmed) setTimeout(() => { if (current === topic) speak(); else announcingUntil = 0; }, EARCON_NOTES.command.length * EARCON_NOTE_S * 1000 + 100); else speak();
 }
 
 let loading = null;
@@ -846,7 +885,8 @@ function onKwsHit(word) {
     openSession('');
   } else if (word === 'BAMBOO' && cancelWord() === 'bamboo') {
     if (vc) cancelSession(); else if (pendingChoice) cancelChoice();
-  } else if (word === 'KATANA' && vc && vc.mode !== 'command' && commandWord() === 'katana') {
+  } else if (word === 'KATANA' && commandWord() === 'katana' && (!vc || vc.mode !== 'command') && katanaEntersCommand() && !(!vc && pendingChoice && Date.now() < pendingChoice.until)) {
+    if (!vc) { lastAttentionHitMs = Date.now(); openSession('', true); }   // the command word alone enters command mode: no start word first, one sound
     enterCommandMode('');
   } else if (word === 'TOMATO' && vc?.mode === 'command') {
     leaveCommandMode('end word on device');
@@ -980,19 +1020,21 @@ async function handleCommandClip(blob, meta) {
     if (pendingChoice.confirm) { if (/^(positive|yes|yeah|yep|sure|ok|okay|correct)$/.test(w)) pick = pendingChoice.names[0]; }
     else { const i = NUMBERS.findIndex(g => g.split(' ').includes(w.replace(/^number /, ''))); if (i >= 0) pick = pendingChoice.names[i]; }
     const closeSession = () => { if (vc) { clearTimeout(vc.timer); clearTimeout(vc.emptyTimer); draftEl.value = vc.base; autosize(); vc = null; } recorder.setReplyMode(false); };
-    if (pick) { pendingChoice = null; lat.stage('switch', 'answer-heard'); closeSession(); switchTopic(pick); vcIdle(); return; }   // the switch tone and "Now on X" follow; no voice state lingers
+    if (pick) { pendingChoice = null; lat.stage('switch', 'answer-heard'); closeSession(); switchTopic(pick, true); vcIdle(); return; }   // the switch tone and "Now on X" follow; no voice state lingers
     if (/^(negative|no|nope|cancel|cancel that|none|never mind|scratch that|stop)$/.test(w) || CANCEL_RE.test(w)) { pendingChoice = null; closeSession(); recorder.beep('cancel'); vcIdle(); maybeAutoplay(); return; }
     if (!vc) { log('vc', `ignored during the switch question: "${heard}"`); vcIdle(); return; }   // "pause" must not open a reply while we wait for the answer
   }
   if (!vc) {
     // With server keyword spotting on (r.kws is a list): it must have heard PAUSE, and Whisper must confirm the standalone word, so "paused"/"paws" never open a session.
     const kwsOn = Array.isArray(r.kws) && startWord() === 'attention' && Date.now() - lastReplyEndMs >= FOLLOW_UP_GRACE_MS;   // the server spots "attention" only   // a follow-up right after a send needs no start word
-    if (kwsOn && !r.kws.includes('ATTENTION')) { noteStartResult(false); log('vc', `ignored: "${heard}" (keyword spotter did not hear the start word)`); resumeBarge(); recorder.setReplyMode(false); vcIdle(); return; }
+    const commandFirst = isCommandWord(normalize(heard).split(' ')[0] ?? '');   // "katana next two": the command word alone starts command mode
+    if (kwsOn && !commandFirst && !r.kws.includes('ATTENTION')) { noteStartResult(false); log('vc', `ignored: "${heard}" (keyword spotter did not hear the start word)`); resumeBarge(); recorder.setReplyMode(false); vcIdle(); return; }
     let rest = afterStartWord(heard);
     // Whisper sometimes drops the leading start word but keeps the command after it: with a spotter hit, a bare command still counts.
     const commandLike = t => { const n = normalize(t); return CANCEL_RE.test(n) || n === 'send'; };   // commands live in command mode, behind the command word
+    if (commandFirst && rest === null) rest = heard;
     if (kwsOn && rest === null && commandLike(heard)) rest = heard;
-    if (kwsOn && rest !== null && afterStartWord(heard) === null && !commandLike(heard)) { log('vc', `ignored: "${heard}" (transcript is not the start word)`); rest = null; resumeBarge(); recorder.setReplyMode(false); vcIdle(); return; }
+    if (kwsOn && rest !== null && afterStartWord(heard) === null && !commandLike(heard) && !commandFirst) { log('vc', `ignored: "${heard}" (transcript is not the start word)`); rest = null; resumeBarge(); recorder.setReplyMode(false); vcIdle(); return; }
     if (rest === null && Date.now() - lastReplyEndMs < FOLLOW_UP_GRACE_MS && commandLike(heard)) rest = heard;   // a command right after a send is still a command, never reply text
     if (rest === null && Date.now() - lastReplyEndMs < FOLLOW_UP_GRACE_MS) { log('vc', `follow-up right after a send: "${heard}"`); openSession(''); addToSession(heard); return; }
     if (rest === null) { noteStartResult(false); resumeBarge(); log('vc', `ignored: "${heard}" (no start word)`); toast(`Ignored (no start word): ${heard.slice(0, 60)}`); recorder.setReplyMode(false); vcIdle(); return; }
@@ -1035,7 +1077,7 @@ function onCommandHit(tag) {
   if (choiceOpen() && (tag === 'POSITIVE' || tag === 'NEGATIVE')) {   // the switch question: answered at once
     lastLocalCommandMs = Date.now(); lat.stage('switch', 'answer-heard');
     const names = pendingChoice.names, confirm = pendingChoice.confirm; pendingChoice = null;
-    if (tag === 'POSITIVE' && confirm) { if (vc) { clearTimeout(vc.timer); clearTimeout(vc.emptyTimer); draftEl.value = vc.base; autosize(); vc = null; recorder.setReplyMode(false); } switchTopic(names[0]); vcIdle(); }
+    if (tag === 'POSITIVE' && confirm) { if (vc) { clearTimeout(vc.timer); clearTimeout(vc.emptyTimer); draftEl.value = vc.base; autosize(); vc = null; recorder.setReplyMode(false); } switchTopic(names[0], true); vcIdle(); }
     else { recorder.beep('cancel'); if (vc) { clearTimeout(vc.timer); draftEl.value = vc.base; vc = null; recorder.setReplyMode(false); } vcIdle(); maybeAutoplay(); }
     return;
   }
@@ -1062,6 +1104,12 @@ function armLocalCommands() {
 
 // ---- Command mode: start word -> INPUT mode (dictation) -> command word -> COMMAND mode (a closed list, chainable, never text) ----
 const CMD_DEFAULT = 'katana', COMMAND_SILENCE_MS = 4000, ATTENTION_COMMAND_WINDOW_MS = 1500;
+/** Mode names as the human reads them (help text and toasts); rename here only. Log keys stay `command mode` etc. */
+const MODE_NAMES = {standby: 'standby', input: 'input', command: 'command'};
+/** Flip to false and "attention katana" back to back stops entering command mode: katana then works from standby only. */
+const ATTENTION_KATANA_BACK_TO_BACK = true, BACK_TO_BACK_WINDOW_MS = 4000;
+/** May the command word start command mode now? From standby always; in input mode only as the very first words after the start word (nothing dictated yet). */
+const katanaEntersCommand = () => !vc || (ATTENTION_KATANA_BACK_TO_BACK && vc.mode !== 'command' && !vc.text.trim() && Date.now() - (vc.openedAt ?? 0) < BACK_TO_BACK_WINDOW_MS);
 const commandWord = () => normalize(store.get('voice2-cmd-word', CMD_DEFAULT)) || CMD_DEFAULT;
 const isCommandWord = w => { const n = normalize(w); return !!n && (n === commandWord() || soundsLikeWord(commandWord(), [n])); };
 /** Index of the first command word in `words`, or -1. */
@@ -1072,8 +1120,8 @@ function enterCommandMode(rest) {
   const first = vc.mode !== 'command';
   vc.mode = 'command'; vc.sawCommand = true;
   if (first) { armLocalCommands(); recorder.beep('command'); log('vc', 'command mode'); log('lat', `command mode ready ${Math.round(Date.now() - (vc.openedAt ?? Date.now()))}ms after the session opened`); }
-  setVcState('command', 'command mode');
-  toast('Command mode: ' + 'back, next, switch to…, cancel');
+  setVcState('command', MODE_NAMES.command + ' mode');
+  toast(MODE_NAMES.command[0].toUpperCase() + MODE_NAMES.command.slice(1) + ' mode: back, next, switch to…, cancel');
   armCommandTimer();
   if (rest) runCommands(rest);
 }
@@ -1175,7 +1223,7 @@ function voiceSwitch(spoken) {
   return true;
 }
 
-function openSession(rest) {
+function openSession(rest, quiet = false) {
   bargePaused = false;
   if (['playing', 'loading'].includes(player.position().status)) player.pause();
   lat.finish('sw', 'pause-applied');
@@ -1183,7 +1231,7 @@ function openSession(rest) {
   vc = {base: draftEl.value, text: '', timer: 0, emptyTimer: 0, openedAt: Date.now()};
   recorder.setReplyMode(true);
   const direct = !!rest && isCommandWord(normalize(rest).split(' ')[0]);   // "attention katana ..." in one transcript: straight to command mode, one sound
-  if (direct) { /* the command sound follows */ }
+  if (direct || quiet) { /* the command sound follows */ }
   else recorder.beep('ready');
   log('vc', `session opened by start word; rest "${rest}"`);
   const words = normalize(rest);
@@ -1208,7 +1256,8 @@ const withoutStrayEndWords = t => removeControlWords(t.split(/\s+/).filter(Boole
 function addToSession(heard) {
   if (hasCancelWord(heard)) { cancelSession(); return; }   // the rare cancel word fires wherever it is said
   { const words = (afterStartWord(heard) ?? heard).split(/\s+/).filter(Boolean), at = commandWordAt(words);   // the command word switches to COMMAND mode: what follows it is commands, what precedes it is reply text
-    if (at >= 0 && vc) { const before = words.slice(0, at).join(' '); if (before) { vc.text = [vc.text, withoutStrayEndWords(before)].filter(Boolean).join(' '); draftEl.value = [vc.base.trim(), vc.text].filter(Boolean).join(' '); autosize(); } enterCommandMode(words.slice(at + 1).join(' ')); return; } }
+    if (at >= 0 && vc && !(at === 0 && katanaEntersCommand()) && vc.mode !== 'command') { log('vc', 'command word inside dictation: ignored, not a mode switch'); words.splice(at, 1); heard = words.join(' '); if (!heard.trim()) { armSessionTimer(); return; } }   // in input mode the command word is not a command
+    else if (at >= 0 && vc) { const before = words.slice(0, at).join(' '); if (before) { vc.text = [vc.text, withoutStrayEndWords(before)].filter(Boolean).join(' '); draftEl.value = [vc.base.trim(), vc.text].filter(Boolean).join(' '); autosize(); } enterCommandMode(words.slice(at + 1).join(' ')); return; } }
   if (endsWithCancel(heard)) { cancelSession(); return; }   // "... cancel" at the end of any utterance cancels the whole reply
   clearTimeout(vc.emptyTimer); vc.emptyTimer = 0;
   if (stripResumePhrase(heard) !== null && !vc.sending) { vc.text = [vc.text, (afterStartWord(heard) ?? heard).trim()].filter(Boolean).join(' '); draftEl.value = [vc.base.trim(), vc.text].filter(Boolean).join(' '); autosize(); sendVoiceReplyNow('end word in the transcript'); return; }   // no quiet window
@@ -1251,6 +1300,7 @@ async function sendVoiceReplyNow(why) {
   for (const p of reply.parts ?? []) { p.sentAway = true; if (p.text === null && !reply.sawCommand) items.push({blob: p.blob}); }   // after a command word the audio may hold commands: only text already transcribed is trusted   // clips still waiting for text go as audio
   vc = null; recorder.setReplyMode(false); lastReplyEndMs = Date.now();
   log('vc', `${why}: sending now (${items.filter(i => i.blob).length} clips for the server to transcribe)`);
+  if (!items.some(i => i.blob)) { const asm = assembleReply(items.map(i => i.text ?? ''), {cancelWord: cancelWord(), commandWord: commandWord()}); if (asm.discard || !asm.text) { log('vc', `reply not sent (${asm.why ?? 'only control words'})`); draftEl.value = reply.base; autosize(); saveDraft(); recorder.beep('cancel'); resumeAfterPause(); vcIdle(); return; } }   // the relay applies the same rules; nothing is even uploaded
   recorder.beep('done');
   if (!items.some(i => i.blob || (i.text && i.text.trim()))) { resumeAfterPause(); vcIdle(); return; }
   const local = {localId: `l${Date.now()}_${localCounter++}`, sendId: 'send_' + Array.from(crypto.getRandomValues(new Uint8Array(9)), b => b.toString(16).padStart(2, '0')).join(''), topic: current, text: reply.text || '…', items, state: 'sending', sentAtMs: Date.now()};
@@ -1266,7 +1316,8 @@ async function sendVoiceReplyNow(why) {
 function finishVcReply() {
   if (!vc || vc.ending) return;   // a timer re-armed while a send was waiting for clips must not fire on a closed session
   if (!vc.sawCommand && (vc?.parts ?? []).some(p => p.text === null && !p.sentAway)) { sendVoiceReplyNow('clips still untranscribed'); return; }
-  const reply = vc, stripped = stripResumePhrase(reply.text) ?? reply.text;
+  const reply = vc, asm = assembleReply([stripResumePhrase(reply.text) ?? reply.text], {cancelWord: cancelWord(), commandWord: commandWord()}), stripped = asm.text;   // same rules as the relay: a cancel word discards it all, command speech and keywords are never text
+  if (asm.discard || !stripped) log('vc', `reply not sent (${asm.why ?? 'only control words'}): "${reply.text}"`);
   vc = null; recorder.setReplyMode(false); lastReplyEndMs = Date.now();
   draftEl.value = [reply.base.trim(), stripped].filter(Boolean).join(' '); autosize(); saveDraft();
   log('vc', `resume phrase + silence: reply "${stripped}"`);
@@ -1297,6 +1348,7 @@ async function setVoiceControl(on) {
   log('vc', `voice control ${r.ok ? 'on' : 'failed'}`);
   if (r.ok && r.running) recorder.beep('ready');
 }
+document.querySelectorAll('.mn').forEach(e => { e.textContent = MODE_NAMES[e.dataset.m]; });   // help text uses the names above
 $('set-phrase').value = store.get('voice2-resume-phrase', RESUME_DEFAULT);
 $('set-phrase').onchange = e => store.set('voice2-resume-phrase', e.target.value.trim() || RESUME_DEFAULT);
 $('set-start').value = store.get('voice2-start-word', START_DEFAULT);
@@ -1449,7 +1501,7 @@ feed.addEventListener('click', event => {
   const span = event.target.closest('.s');
   const other = span && node && !span.classList.contains('now');   // a different sentence still seeks
   if ((status === 'playing' || status === 'loading') && !other) { player.unlock(); player.pause(); flash('❚❚'); return; }
-  if (span && node) { const m = model.messages(current).find(x => x.id === +node.dataset.id); playFrom(m, +span.dataset.from); return; }
+  if (span && node) { const m = model.messages(current).find(x => x.id === +node.dataset.id); clearTimeout(burst?.timer); burst = null; playFrom(m, +span.dataset.from); return; }
   if (status === 'paused') { player.unlock(); resumeAfterPause(); flash('▶'); return; }
   if (node) { const m = model.messages(current).find(x => x.id === +node.dataset.id); playFrom(m, 0); }
 });
