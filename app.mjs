@@ -1,16 +1,16 @@
 /** Wires the model, Zulip events, voice service, player, recorder and DOM. Behavior is described in `../docs/v2/design.md`. */
-import {createLog} from './log.mjs?v=79f21c498a';
-import {createLatency} from './latency.mjs?v=79f21c498a';
-import {createKeywordSpotter} from './kws.mjs?v=79f21c498a';
-import {createZulip, createEvents} from './zulip.mjs?v=79f21c498a';
-import {createVoice} from './voice.mjs?v=79f21c498a';
-import {createPlayer} from './player.mjs?v=79f21c498a';
-import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=79f21c498a';
-import {assembleReply, looksLikeClippedEndWord, soundsLikeWord, soundsLike, removeControlWords, stripTrailingControl, leadingControlCount, DOMAIN_PROMPT} from './text.mjs?v=79f21c498a';
-import {createModel, parsed, itemsOf} from './model.mjs?v=79f21c498a';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=79f21c498a';
+import {createLog} from './log.mjs?v=e11486f4a0';
+import {createLatency} from './latency.mjs?v=e11486f4a0';
+import {createKeywordSpotter} from './kws.mjs?v=e11486f4a0';
+import {createZulip, createEvents} from './zulip.mjs?v=e11486f4a0';
+import {createVoice} from './voice.mjs?v=e11486f4a0';
+import {createPlayer} from './player.mjs?v=e11486f4a0';
+import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=e11486f4a0';
+import {assembleReply, looksLikeClippedEndWord, soundsLikeWord, soundsLike, removeControlWords, stripTrailingControl, leadingControlCount, DOMAIN_PROMPT} from './text.mjs?v=e11486f4a0';
+import {createModel, parsed, itemsOf} from './model.mjs?v=e11486f4a0';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=e11486f4a0';
 
-const BUILD = 'v2.0-79f21c498a';
+const BUILD = 'v2.0-e11486f4a0';
 const ACCOUNT_KEY = 'zulip-voice-account';
 const $ = id => document.getElementById(id);
 const store = {
@@ -129,7 +129,7 @@ if (cache) { for (const list of Object.values(cache.msgs ?? {})) for (const m of
 
 const player = createPlayer({
   log, voice,
-  onItemStart(item) { log('audio', `start ${item.key}`); lat.finish('play:' + item.msgId, 'ready+playing'); if (burst?.pending) return; store.set('voice2-pos', {topic: current, msgId: item.msgId, idx: item.idx}); store.set('voice2-last', {topic: current, msgId: item.msgId, idx: item.idx}); if (after(item, watermark())) store.set(wmKey(current), {msgId: item.msgId, idx: item.idx}); pausedItem = {topic: current, msgId: item.msgId, idx: item.idx}; const before = model.unreadAgentMessages(current).filter(m => m.id < item.msgId).map(m => m.id); if (before.length) markRead(before); nowMsgId = item.msgId; nowIdx = item.idx; highlight(); $('jump').hidden = follow; if (follow) scrollToNow(); setMediaSession(item); },
+  onItemStart(item) { log('audio', `start ${item.key}`); lat.finish('play:' + item.msgId, 'ready+playing'); if (burst?.pending) return; store.set('voice2-pos', {topic: current, msgId: item.msgId, idx: item.idx}); store.set('voice2-last', {topic: current, msgId: item.msgId, idx: item.idx}); if (after(item, watermark())) store.set(wmKey(current), {msgId: item.msgId, idx: item.idx}); pausedItem = {topic: current, msgId: item.msgId, idx: item.idx}; const before = model.unreadAgentMessages(current).filter(m => m.id < item.msgId).map(m => m.id); if (before.length) markRead(before); nowMsgId = item.msgId; nowIdx = item.idx; highlight(); if (follow) scrollToNow(); updateJump(); setMediaSession(item); },
   onItemEnd(item) {
     if (!item.last) return;
     store.set('voice2-pos', null); if (pausedItem?.msgId === item.msgId) pausedItem = null;
@@ -209,6 +209,14 @@ function highlight() {
   if (nowMsgId === null) return;
   const node = els.get(nowMsgId)?.querySelectorAll('.s');
   for (const s of node ?? []) if (+s.dataset.from <= nowIdx && nowIdx <= +s.dataset.to) s.classList.add('now');
+  updateJump();
+}
+/** The "jump to playing" pill shows exactly when the playing chunk is outside the visible feed, recomputed on every chunk change, scroll and layout change. */
+function updateJump() {
+  const n = nowMsgId === null ? null : feed.querySelector('.s.now');
+  if (!n) { $('jump').hidden = true; return; }
+  const box = feed.getBoundingClientRect(), r = n.getBoundingClientRect();
+  $('jump').hidden = r.bottom > box.top && r.top < box.bottom;
 }
 
 function scrollToNow(force = false) {
@@ -466,7 +474,7 @@ const pastWatermark = it => after(it, watermark());
 let pausedItem = null;
 let lastVoiceReply = {key: '', ms: 0};
 function resumeAfterPause() {
-  player.unlock();
+  player.unlock(); setFollow(true); if (nowMsgId !== null) scrollToNow();
   const st = player.position().status;
   if (st === 'paused') { player.resume(); return; }
   const m = pausedItem && model.find(pausedItem.msgId);
@@ -504,6 +512,7 @@ function maybeAutoplay() {
 
 /** Skipped past the last chunk: stop, mark everything read, play nothing. */
 function endOfQueue() {
+  setFollow(true);
   clearTimeout(burst?.timer); burst = null;
   player.stop(); nowMsgId = null; highlight();
   markRead(model.agentMessages(current).map(m => m.id));
@@ -647,6 +656,7 @@ function switchBack() {
 }
 
 function switchTopic(topic, confirmed = false) {
+  setFollow(true);
   lat.begin('switchfeed', 'switch-render');
   lat.finish('switch', 'switched');
   if (topic === current) { $('picker').close(); return; }
@@ -682,8 +692,8 @@ function announceSwitch(topic, confirmed = false) {
     return;
   }
   announcingUntil = Date.now() + 4000;
-  recorder.muteFor(3500);
-  const speak = () => player.say(`Now on ${topic}`).then(ms => { recorder.muteFor(ms); announcingUntil = Date.now() + ms + 300; setTimeout(() => { if (current === topic) maybeAutoplay(); }, ms + 350); });
+  recorder.muteFor(3500, true); sayingUntil = Date.now() + 3500;
+  const speak = () => player.say(`Now on ${topic}`).then(ms => { sayingUntil = Date.now() + ms; recorder.muteFor(ms, true); announcingUntil = Date.now() + ms + 300; setTimeout(() => { if (current === topic) maybeAutoplay(); }, ms + 350); });
   if (confirmed) setTimeout(() => { if (current === topic) speak(); else announcingUntil = 0; }, EARCON_NOTES.command.length * EARCON_NOTE_S * 1000 + 100); else speak();
 }
 
@@ -877,6 +887,7 @@ let sttInFlight = 0, lastAttentionHitMs = 0;
 function onKwsHit(word) {
   if (!voiceControl || !kwsEnabled() || dict || Date.now() - (kwsHitMs[word] ?? 0) < 1500) return;   // the same word twice in a row is one hit; a different word may follow at once ("attention katana")
   kwsHitMs[word] = lastHitAt = Date.now();
+  if (Date.now() < sayingUntil && word !== 'TOMATO') { player.stopSay(); sayingUntil = 0; announcingUntil = 0; recorder.unmute(); log('vc', `prompt interrupted by ${word}`); }   // "attention" right after a switch cuts "Now on X" short
   log('vc', `on-device keyword: ${word}`);
   if (word === 'ATTENTION' && startWord() === 'attention' && !vc && !(pendingChoice && Date.now() < pendingChoice.until)) {
     if (!lat.has('sw')) lat.begin('sw', 'startword');
@@ -1018,7 +1029,7 @@ async function handleCommandClip(blob, meta) {
     const NUMBERS = ['one first 1', 'two second 2', 'three third 3'];
     let pick = null;
     if (pendingChoice.confirm) { if (/^(positive|yes|yeah|yep|sure|ok|okay|correct)$/.test(w)) pick = pendingChoice.names[0]; }
-    else { const i = NUMBERS.findIndex(g => g.split(' ').includes(w.replace(/^number /, ''))); if (i >= 0) pick = pendingChoice.names[i]; }
+    else { const i = NUMBERS.findIndex(g => g.split(' ').includes(w.replace(/^number /, ''))); if (i >= 0) pick = pendingChoice.names[i]; else { const r = rankTopics(w.replace(/^(switch to|go to|agent)\s+/, '')); if (w && r.length && r[0].score >= SWITCH_MIN_SCORE && (r.length === 1 || r[0].score - r[1].score >= 0.15)) pick = r[0].t.name; } }   // the name itself answers a numbered list ("Human manager")
     const closeSession = () => { if (vc) { clearTimeout(vc.timer); clearTimeout(vc.emptyTimer); draftEl.value = vc.base; autosize(); vc = null; } recorder.setReplyMode(false); };
     if (pick) { pendingChoice = null; lat.stage('switch', 'answer-heard'); closeSession(); switchTopic(pick, true); vcIdle(); return; }   // the switch tone and "Now on X" follow; no voice state lingers
     if (/^(negative|no|nope|cancel|cancel that|none|never mind|scratch that|stop)$/.test(w) || CANCEL_RE.test(w)) { pendingChoice = null; closeSession(); recorder.beep('cancel'); vcIdle(); maybeAutoplay(); return; }
@@ -1039,6 +1050,7 @@ async function handleCommandClip(blob, meta) {
     if (rest === null && Date.now() - lastReplyEndMs < FOLLOW_UP_GRACE_MS) { log('vc', `follow-up right after a send: "${heard}"`); openSession(''); addToSession(heard); return; }
     if (rest === null) { noteStartResult(false); resumeBarge(); log('vc', `ignored: "${heard}" (no start word)`); toast(`Ignored (no start word): ${heard.slice(0, 60)}`); recorder.setReplyMode(false); vcIdle(); return; }
     noteStartResult(true);
+    if (commandFirst && afterStartWord(heard) === null) { const w = heard.trim().split(/\s+/); openSession('', true); enterCommandMode(w.slice(1).join(' ')); return; }   // "katana next two" from standby: command mode directly
     openSession(rest);
     return;
   }
@@ -1073,6 +1085,7 @@ function onCommandHit(tag) {
   const inCommand = vc?.mode === 'command';
   if ((!inCommand && !choiceOpen()) || (tag === lastLocalTag && Date.now() - lastLocalTagMs < 1000)) return;
   lastLocalTag = tag; lastLocalTagMs = lastHitAt = Date.now();
+  if (Date.now() < sayingUntil) { player.stopSay(); sayingUntil = 0; announcingUntil = 0; recorder.unmute(); log('vc', `prompt interrupted by ${tag}`); }
   log('vc', `on-device command: ${localPhrases.get(tag) ?? tag.toLowerCase().replace(/_/g, ' ')} (${Math.round(Date.now() - (lastCommandWindowMs || Date.now()))}ms into the window)`);
   if (choiceOpen() && (tag === 'POSITIVE' || tag === 'NEGATIVE')) {   // the switch question: answered at once
     lastLocalCommandMs = Date.now(); lat.stage('switch', 'answer-heard');
@@ -1107,7 +1120,7 @@ const CMD_DEFAULT = 'katana', COMMAND_SILENCE_MS = 4000, ATTENTION_COMMAND_WINDO
 /** Mode names as the human reads them (help text and toasts); rename here only. Log keys stay `command mode` etc. */
 const MODE_NAMES = {standby: 'standby', input: 'input', command: 'command'};
 /** Flip to false and "attention katana" back to back stops entering command mode: katana then works from standby only. */
-const ATTENTION_KATANA_BACK_TO_BACK = true, BACK_TO_BACK_WINDOW_MS = 4000;
+const ATTENTION_KATANA_BACK_TO_BACK = false, BACK_TO_BACK_WINDOW_MS = 4000;
 /** May the command word start command mode now? From standby always; in input mode only as the very first words after the start word (nothing dictated yet). */
 const katanaEntersCommand = () => !vc || (ATTENTION_KATANA_BACK_TO_BACK && vc.mode !== 'command' && !vc.text.trim() && Date.now() - (vc.openedAt ?? 0) < BACK_TO_BACK_WINDOW_MS);
 const commandWord = () => normalize(store.get('voice2-cmd-word', CMD_DEFAULT)) || CMD_DEFAULT;
@@ -1143,7 +1156,7 @@ function runCommands(text) {
   while (tokens.length && vc) {
     const t = tokens[0], two = tokens.slice(0, 2).join(' ');
     if (SWITCH_BACK_RE.test(tokens.slice(0, 3).join(' ')) || SWITCH_BACK_RE.test(two)) { tokens.splice(0, SWITCH_BACK_RE.test(two) ? 2 : 3); log('vc', 'switch back to the previous agent'); done.push('switch back'); finishSession(true); bargePaused = false; switchBack(); left = true; break; }
-    if (/^(switch|go)$/.test(t) && /^(to|agent|agents)$/.test(tokens[1] ?? '')) {   // the name is free-form: it takes the rest of the utterance and ends the chain
+    if (/^(switch|switched|switching|go)$/.test(t) && /^(to|agent|agents)$/.test(tokens[1] ?? '')) {   // Whisper often hears "switched to"   // the name is free-form: it takes the rest of the utterance and ends the chain
       const name = tokens.slice(/^(agent|agents)$/.test(tokens[1]) && tokens[2] === 'to' ? 3 : 2).join(' ');
       done.push('switch'); finishSession(true); recorder.setReplyMode(false); voiceSwitch(name); left = true; break;
     }
@@ -1203,11 +1216,13 @@ const hasCancelWord = text => { const w = cancelWord(); return normalize(text).s
 const CANCEL_RE = {test: t => /^(?:cancel|cancel that|never mind|scratch that|forget it)$/.test(t) || (t.split(' ').every(x => x === cancelWord() || soundsLikeWord(cancelWord(), [x])))};
 const SWITCH_MIN_SCORE = 0.8;
 /** "switch to <name>": one clear match switches (with a chime); otherwise show the top 3 and accept first/second/third. */
-function sayAndMute(text) { recorder.muteFor(2500 + text.length * 70); player.say(text).then(ms => recorder.muteFor(ms)); }
+let sayingUntil = 0;   // our own prompt is playing until then: a keyword spotted meanwhile interrupts it
+function sayAndMute(text) { sayingUntil = Date.now() + 2500 + text.length * 70; recorder.muteFor(2500 + text.length * 70, true); player.say(text).then(ms => { sayingUntil = Date.now() + ms; recorder.muteFor(ms, true); }); }
 function cancelChoice() { if (pendingChoice) { pendingChoice = null; recorder.beep('cancel'); toast('Switch cancelled'); maybeAutoplay(); } }
 const ranksConfident = spoken => (rankTopics(spoken)[0]?.score ?? 0) >= SWITCH_MIN_SCORE;
 function voiceSwitch(spoken) {
   lat.begin('switch', 'switch');
+  if (!normalize(spoken)) { const names = model.topics().slice(0, 3).map(t => t.name); pendingChoice = {names, until: Date.now() + 20000, confirm: false}; setTimeout(() => { if (pendingChoice && Date.now() >= pendingChoice.until) cancelChoice(); }, 20500); toast('Switch to which agent?'); sayAndMute('Which agent?'); armLocalCommands(); return true; }   // "switch to" with no name: wait for the name
   const ranked = rankTopics(spoken);
   log('vc', `switch to "${spoken}" -> ${ranked.slice(0, 3).map(x => `${x.t.name}:${x.score.toFixed(2)}`).join(', ') || 'no match'}`);
   if (!ranked.length) { log('vc', 'no agent matches'); toast(`No agent called “${spoken}”`); sayAndMute(`No agent called ${spoken}`); return false; }
@@ -1230,7 +1245,7 @@ function openSession(rest, quiet = false) {
  
   vc = {base: draftEl.value, text: '', timer: 0, emptyTimer: 0, openedAt: Date.now()};
   recorder.setReplyMode(true);
-  const direct = !!rest && isCommandWord(normalize(rest).split(' ')[0]);   // "attention katana ..." in one transcript: straight to command mode, one sound
+  const direct = ATTENTION_KATANA_BACK_TO_BACK && !!rest && isCommandWord(normalize(rest).split(' ')[0]);   // "attention katana ..." in one transcript: straight to command mode, one sound
   if (direct || quiet) { /* the command sound follows */ }
   else recorder.beep('ready');
   log('vc', `session opened by start word; rest "${rest}"`);
@@ -1477,7 +1492,7 @@ feed.addEventListener('scroll', () => {
   if (Math.abs(delta) > 6) { scrolledAway = delta > 0 && top > 80 && !atBottom(); $('bar').classList.toggle('away', scrolledAway); $('dock').classList.toggle('min', scrolledAway && player.position().status === 'idle'); lastScroll = top; }
 }, {passive: true});
 /** A manual scroll while audio plays suspends following and offers a pill to resume. */
-const setFollow = on => { follow = on; $('jump').hidden = on || nowMsgId === null; };
+const setFollow = on => { follow = on; updateJump(); };
 feed.addEventListener('touchmove', () => { if (nowMsgId !== null) setFollow(false); }, {passive: true});
 feed.addEventListener('wheel', () => { if (nowMsgId !== null) setFollow(false); }, {passive: true});
 let userScrollMs = 0, scrollPastTimer = 0;
@@ -1492,6 +1507,11 @@ feed.addEventListener('scroll', () => {
   }, 700);
 }, {passive: true});
 $('jump').onclick = () => { setFollow(true); scrollToNow(true); };
+let jumpFrame = 0;
+const scheduleJump = () => { if (!jumpFrame) jumpFrame = requestAnimationFrame(() => { jumpFrame = 0; updateJump(); }); };
+feed.addEventListener('scroll', scheduleJump, {passive: true});
+addEventListener('resize', scheduleJump);
+new MutationObserver(scheduleJump).observe(feed, {childList: true, subtree: true});
 /** Tapping the feed: while audio plays, a tap on empty space or on the playing sentence pauses (another sentence seeks); while paused, a tap on empty space resumes and a tap on a sentence reads from there; idle, a tap on a message reads it. */
 function flash(text) { const el = $('tap-flash'); el.textContent = text; el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); }
 feed.addEventListener('click', event => {

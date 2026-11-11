@@ -33,6 +33,7 @@ export function createPlayer({log, voice, onItemStart, onItemEnd, onIdle, onStat
 
   const setStatus = next => { if (next !== status) { log('audio', `${status} -> ${next}${index >= 0 ? ' item ' + index : ''}${next === 'error' ? ' ' + error : ''}`); status = next; } onStatus?.({status, index, error}); };
 
+  let sayGen = 0;
   const localParts = new Map();   // bundles this client asked for on demand: `${msgId}:${firstIdx}` -> part
 
   /** `{part, startMs, endMs}`: the bundle holding item `it` (from the service's pre-render or an on-demand batch) and its time range. */
@@ -242,15 +243,17 @@ export function createPlayer({log, voice, onItemStart, onItemEnd, onIdle, onStat
       if (status === 'blocked') start(active, gen);
     },
     isUnlocked: () => unlocked,
-    /** A soft looping pad (two low sines with a slow swell), made locally; `ambient(true)` fades it in over 2 s, `ambient(false)` fades it out. */
+    /** Faint relaxing music (soft bell-like pentatonic notes), made locally; `ambient(true)` fades it in over 2 s, `ambient(false)` fades it out. */
     ambient(on) {
       if (on === ambientOn) return;
       ambientOn = on; clearInterval(ambientFade);
       if (on) {
         if (!unlocked) { ambientOn = false; return; }
         if (!ambientUrl) {
-          const hz = 8000, secs = 12, n = hz * secs, pcm = new Int16Array(n);
-          for (let i = 0; i < n; i++) { const t = i / hz, swell = 0.7 + 0.3 * Math.sin(2 * Math.PI * t / secs * 1); pcm[i] = Math.round((Math.sin(2 * Math.PI * 196 * t) * 0.6 + Math.sin(2 * Math.PI * 294 * t) * 0.4) * swell * 0.12 * 32767); }   // whole periods per loop: no click at the seam
+          const hz = 16000, secs = 20, n = hz * secs, pcm = new Int16Array(n), buf = new Float32Array(n);   // slow bell-like pentatonic notes, 2 s apart, each ringing out for ~4 s; the tail wraps round so the loop is seamless
+          const tune = [523, 659, 784, 659, 587, 784, 880, 659, 523, 587];
+          tune.forEach((f, k) => { const start = Math.round(k * 2 * hz); for (let i = 0; i < hz * 4.5; i++) { const t = i / hz, env = Math.min(1, t / 0.05) * Math.exp(-t * 1.1), v = (Math.sin(2 * Math.PI * f * t) + 0.25 * Math.sin(4 * Math.PI * f * t) * Math.exp(-t * 2)) * env; buf[(start + i) % n] += v; } });
+          for (let i = 0; i < n; i++) pcm[i] = Math.round(Math.max(-1, Math.min(1, buf[i] * 0.09)) * 32767);
           const head = new DataView(new ArrayBuffer(44)), w = (o, t) => [...t].forEach((c, i) => head.setUint8(o + i, c.charCodeAt(0)));
           w(0, 'RIFF'); head.setUint32(4, 36 + pcm.byteLength, true); w(8, 'WAVEfmt '); head.setUint32(16, 16, true); head.setUint16(20, 1, true); head.setUint16(22, 1, true); head.setUint32(24, hz, true); head.setUint32(28, hz * 2, true); head.setUint16(32, 2, true); head.setUint16(34, 16, true); w(36, 'data'); head.setUint32(40, pcm.byteLength, true);
           ambientUrl = URL.createObjectURL(new Blob([head, pcm], {type: 'audio/wav'}));
@@ -259,7 +262,7 @@ export function createPlayer({log, voice, onItemStart, onItemEnd, onIdle, onStat
         ambientEl.volume = 0; ambientEl.play().catch(() => {});
         ambientFade = setInterval(() => { ambientEl.volume = Math.min(1, ambientEl.volume + 0.05); if (ambientEl.volume >= 1) clearInterval(ambientFade); }, 100);   // iOS ignores volume: the pad is already quiet
       } else {
-        ambientFade = setInterval(() => { ambientEl.volume = Math.max(0, ambientEl.volume - 0.25); if (ambientEl.volume <= 0) { clearInterval(ambientFade); ambientEl.pause(); } }, 60);
+        ambientFade = setInterval(() => { ambientEl.volume = Math.max(0, ambientEl.volume - 0.5); if (ambientEl.volume <= 0) { clearInterval(ambientFade); ambientEl.pause(); } }, 60);
       }
     },
     ambientOn: () => ambientOn,
@@ -273,11 +276,14 @@ export function createPlayer({log, voice, onItemStart, onItemEnd, onIdle, onStat
       earEl.src = url; earEl.play().catch(() => {}); earEl.onended = () => URL.revokeObjectURL(url);
     },
     /** Speaks `text` (a short prompt) on its own element, without touching the queue. Resolves with the spoken duration in ms (0 on failure). */
+    stopSay() { sayGen++; sayEl.pause(); },
     async say(text) {
+      const myGen = ++sayGen;
       const r = await voice.ttsBatch([text.replace(/[_-]/g, ' ')]);
       if (!r.ok) return 0;
       const u = await voice.clipUrl(r.clip, URL_FRESH_MS);
       if (!u.ok) return 0;
+      if (myGen !== sayGen) return 0;   // interrupted while it was being made
       sayEl.src = u.url;
       await sayEl.play().catch(() => {});
       return r.clip.durationMs ?? 2000;
