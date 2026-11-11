@@ -6,6 +6,7 @@
 const TARGET_HZ = 16000;
 const MAX_CLIP_S = 10;
 const PAUSE_MS = 700;
+const REPLY_PAUSE_MS = 1100, REPLY_MAX_CLIP_S = 30;   // a spoken reply (voice control) is cut into fewer, longer clips: fewer uploads and transcriptions
 const LISTEN_PAUSE_MS = 250;   // a start-word clip ends sooner: the command is one short word
 const MIN_SPEECH_MS = 250;
 const PREROLL_MS = 300;
@@ -113,7 +114,7 @@ export function createRecorder({log, onClip, onLevel, onBarge, onCommandClip, on
     if (!frames.length) { frames = preroll; preroll = []; clipMs = frames.length * ms; }
     frames.push(frame); clipMs += ms;
     if (speaking) { speechMs += ms; silentMs = 0; } else silentMs += ms;
-    if (silentMs >= (capturing || replyMode ? PAUSE_MS : LISTEN_PAUSE_MS) || clipMs >= MAX_CLIP_S * 1000) cut(false);
+    if (silentMs >= (replyMode && !capturing ? REPLY_PAUSE_MS : capturing || replyMode ? PAUSE_MS : LISTEN_PAUSE_MS) || clipMs >= (replyMode && !capturing ? REPLY_MAX_CLIP_S : MAX_CLIP_S) * 1000) cut(false);
   }
 
   /** Builds the context, stream and worklet once; released by `teardown` as soon as neither dictation nor voice control needs it. */

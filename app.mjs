@@ -1,16 +1,16 @@
 /** Wires the model, Zulip events, voice service, player, recorder and DOM. Behavior is described in `../docs/v2/design.md`. */
-import {createLog} from './log.mjs?v=e11486f4a0';
-import {createLatency} from './latency.mjs?v=e11486f4a0';
-import {createKeywordSpotter} from './kws.mjs?v=e11486f4a0';
-import {createZulip, createEvents} from './zulip.mjs?v=e11486f4a0';
-import {createVoice} from './voice.mjs?v=e11486f4a0';
-import {createPlayer} from './player.mjs?v=e11486f4a0';
-import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=e11486f4a0';
-import {assembleReply, looksLikeClippedEndWord, soundsLikeWord, soundsLike, removeControlWords, stripTrailingControl, leadingControlCount, DOMAIN_PROMPT} from './text.mjs?v=e11486f4a0';
-import {createModel, parsed, itemsOf} from './model.mjs?v=e11486f4a0';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=e11486f4a0';
+import {createLog} from './log.mjs?v=4798953096';
+import {createLatency} from './latency.mjs?v=4798953096';
+import {createKeywordSpotter} from './kws.mjs?v=4798953096';
+import {createZulip, createEvents} from './zulip.mjs?v=4798953096';
+import {createVoice} from './voice.mjs?v=4798953096';
+import {createPlayer} from './player.mjs?v=4798953096';
+import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=4798953096';
+import {assembleReply, looksLikeClippedEndWord, soundsLikeWord, soundsLike, removeControlWords, stripTrailingControl, leadingControlCount, DOMAIN_PROMPT} from './text.mjs?v=4798953096';
+import {createModel, parsed, itemsOf} from './model.mjs?v=4798953096';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=4798953096';
 
-const BUILD = 'v2.0-e11486f4a0';
+const BUILD = 'v2.0-4798953096';
 const ACCOUNT_KEY = 'zulip-voice-account';
 const $ = id => document.getElementById(id);
 const store = {
@@ -995,6 +995,7 @@ async function handleCommandClip(blob, meta) {
   if (Date.now() - lastLocalCommandMs < (meta.ms ?? 0) + 800 && lastLocalCommandMs) { log('vc', 'clip already handled on-device: not sent to the server'); if (vc?.parts?.length) vc.parts.at(-1).text ||= ''; if (vc?.mode === 'command') armCommandTimer(); return; }
   log('vc', `clip ${Math.round(meta.ms ?? 0)}ms (${Math.round(meta.speechMs ?? 0)}ms speech) ${vc ? 'in reply' : pendingChoice ? 'for the question' : 'for the start word'}`);
   lat.stage('sw', 'clip-end');
+  if (!vc && !pendingChoice && kwsSpotter.ready() && kwsEnabled() && Date.now() - lastHitAt > (meta.ms ?? 0) + 1500) { log('vc', 'start-word clip with no local keyword: not uploaded'); recorder.setReplyMode(false); resumeBarge(); vcIdle(); return; }   // the on-device spotter hears start words; an upload per noise clip is the biggest source of Zulip calls
   if (!vc && !pendingChoice) {
     startWordUploads = startWordUploads.filter(t => Date.now() - t < 60000);
     if (startWordUploads.length >= UPLOADS_PER_MIN || zulip.rateLimitedForMs() > 0) { log('vc', `dropped a clip without uploading (${startWordUploads.length} uploads this minute${zulip.rateLimitedForMs() ? ', Zulip rate limit' : ''})`); recorder.setReplyMode(false); vcIdle(); return; }
