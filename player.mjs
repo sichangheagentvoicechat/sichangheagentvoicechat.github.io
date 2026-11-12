@@ -157,6 +157,10 @@ export function createPlayer({log, voice, onItemStart, onItemEnd, onIdle, onStat
   }
 
   function start(slot, myGen, seekMs, bundle, auto = false) {
+    if (bundle === undefined && items[index]) {   // resume/unlock of the loaded slot: keep the chunk boundary, else the highlight freezes while the bundle plays on
+      const b = bundleOf(items[index]);
+      if (b && slot.bundleId === variantId(b.part)) bundle = b;
+    }
     if (auto && bundle && !slot.el.paused && pausedMs === null) {   // chunk-to-chunk inside one playing bundle: the audio clock decides, never the timer (a starved timer must not replay or desync)
       const cur = slot.el.currentTime * 1000;
       if (cur >= bundle.endMs - 25 && items[index + 1]) {   // the timer was late and the audio already passed this whole chunk: it was heard, move on
@@ -299,7 +303,7 @@ export function createPlayer({log, voice, onItemStart, onItemEnd, onIdle, onStat
       if (status !== 'playing' && status !== 'loading' && status !== 'blocked') return;
       const b = status === 'playing' && items[index] ? bundleOf(items[index]) : null;
       pausedMs = b && active ? active.el.currentTime * 1000 : null;
-      pausedDone = !!b && pausedMs >= b.startMs + HEARD_FRACTION * (b.endMs - b.startMs);
+      pausedDone = !!b && pausedMs >= b.startMs + HEARD_FRACTION * (b.endMs - b.startMs) && pausedMs < b.endMs - 25;   // past the chunk's end: resume plays on from the audio clock and the boundary timer catches up
       if (active) { active.appPause = true; active.el.pause(); }
       setStatus('paused');
     },

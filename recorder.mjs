@@ -62,7 +62,7 @@ function resampleToWav(frames, fromHz) {
 }
 
 /** `start()` resolves to `{ok: true}` or `{ok: false, error}`. `onClip(blob, {ms})` per clip, `onLevel(0..1)` ~23 times a second. */
-export const EARCON_NOTES = {ready: [880, 1320], done: [1320, 880], error: [640, 540], switch: [660, 990, 1320], cancel: [900, 620], command: [740, 0, 740], tick: [1568], updated: [988, 740, 988], interrupted: [1000, 850, 720, 620]};   // every note is 600-1600 Hz: phone speakers play lower tones too quietly
+export const EARCON_NOTES = {ready: [880, 1320], done: [1320, 880], cancel: [900, 620], command: [740, 0, 740], tick: [1568], updated: [988, 740, 988], interrupted: [1000, 850, 720, 620]};   // every note is 600-1600 Hz: phone speakers play lower tones too quietly
 
 export function createRecorder({log, onClip, onLevel, onBarge, onCommandClip, onEarcon, onKwsAudio, onSpeechOnset}) {
   /** Every change of the iOS audio session type goes through here and is logged (`route ...`): changes make the output volume jump. */
@@ -201,7 +201,7 @@ export function createRecorder({log, onClip, onLevel, onBarge, onCommandClip, on
       sustainMs = 0; frames = []; preroll = [];
       if (!capturing && !listening) teardown();
     },
-    /** Short quiet chime on the warm audio context: `ready` (rising), `done` (falling), `error` (low). Voice detection ignores it while it plays. */
+    /** Short quiet chime on the warm audio context: one of EARCON_NOTES. Voice detection ignores it while it plays. */
     beep(kind) {
       const notes = EARCON_NOTES[kind];
       onEarcon?.(kind);   // played by the app on an <audio> element: no extra AudioContext, same output path and level as speech

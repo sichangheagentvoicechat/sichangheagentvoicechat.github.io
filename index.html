@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="color-scheme" content="light dark">
 <title>Voice</title>
-<link rel="stylesheet" href="app.css?v=4798953096">
+<link rel="stylesheet" href="app.css?v=ae7c2b46b3">
 </head>
 <body>
 <div id="app" hidden>
@@ -50,9 +50,28 @@
   <div id="tap-flash" aria-hidden="true"></div>
 </div>
 
-<dialog id="picker" aria-label="Choose agent"><div class="sheet">
+<dialog id="picker" class="top" aria-label="Choose agent"><div class="sheet">
   <div class="sheet-head"><input id="search" type="search" placeholder="Search agents" autocomplete="off" autocapitalize="none" spellcheck="false"><button class="close icon" data-close aria-label="Close"><svg viewBox="0 0 24 24" class="i"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
   <ul id="topics"></ul>
+</div></dialog>
+
+<dialog id="keys-sheet" aria-label="Keyboard shortcuts"><div class="sheet">
+  <div class="sheet-head"><h2>Keyboard shortcuts</h2><button class="close icon" data-close aria-label="Close"><svg viewBox="0 0 24 24" class="i"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <section><dl class="keys">
+    <dt>Space</dt><dd>play / pause</dd>
+    <dt>&larr; / &rarr;</dt><dd>previous / next chunk</dd>
+    <dt>Shift + &larr; / &rarr;</dt><dd>previous / next message</dd>
+    <dt>[ / ]</dt><dd>slower / faster</dd>
+    <dt>a</dt><dd>auto-read on / off</dd>
+    <dt>m</dt><dd>dictate; again: stop and keep text</dd>
+    <dt>Esc</dt><dd>discard recording; leave the text box</dd>
+    <dt>Enter</dt><dd>send (in the text box)</dd>
+    <dt>i</dt><dd>type a reply</dd>
+    <dt>/</dt><dd>find agent</dd>
+    <dt>Alt + &uarr; / &darr;</dt><dd>previous / next agent in the list</dd>
+    <dt>v</dt><dd>voice control on / off</dd>
+    <dt>?</dt><dd>this list</dd>
+  </dl></section>
 </div></dialog>
 
 <dialog id="settings-sheet" aria-label="Settings"><div class="sheet">
@@ -70,6 +89,7 @@
     <label class="row"><span>Speed <b id="set-rate-text"></b></span><input id="set-rate" type="range" min="0.5" max="3" step="0.1"></label>
   </section>
   <section>
+    <button id="open-keys" class="wide">Keyboard shortcuts (?)</button>
     <button id="open-debug" class="wide">Connection and debug log</button>
     <button id="reload" class="wide">Reload app</button>
   </section>
@@ -95,6 +115,6 @@
   <button class="wide accent">Connect</button>
 </form></dialog>
 
-<script type="module" src="app.mjs?v=4798953096"></script>
+<script type="module" src="app.mjs?v=ae7c2b46b3"></script>
 </body>
 </html>
