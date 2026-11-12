@@ -1,21 +1,21 @@
 /** Wires the model, Zulip events, voice service, player, voice control and DOM: feed, playback order, read state, switching, sending. Behavior is described in `design.md`. */
-import {createLog} from './log.mjs?v=ae7c2b46b3';
-import {createLatency} from './latency.mjs?v=ae7c2b46b3';
-import {createZulip, createEvents} from './zulip.mjs?v=ae7c2b46b3';
-import {createVoice} from './voice.mjs?v=ae7c2b46b3';
-import {createPlayer} from './player.mjs?v=ae7c2b46b3';
-import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=ae7c2b46b3';
-import {createModel, parsed, itemsOf} from './model.mjs?v=ae7c2b46b3';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=ae7c2b46b3';
-import {store} from './store.mjs?v=ae7c2b46b3';
-import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=ae7c2b46b3';
-import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=ae7c2b46b3';
-import {createReads} from './reads.mjs?v=ae7c2b46b3';
-import {createVoiceControl} from './voicecontrol.mjs?v=ae7c2b46b3';
-import {createDictation} from './dictation.mjs?v=ae7c2b46b3';
-import {rankTopics, similarText} from './grammar.mjs?v=ae7c2b46b3';
+import {createLog} from './log.mjs?v=351006059d';
+import {createLatency} from './latency.mjs?v=351006059d';
+import {createZulip, createEvents} from './zulip.mjs?v=351006059d';
+import {createVoice} from './voice.mjs?v=351006059d';
+import {createPlayer} from './player.mjs?v=351006059d';
+import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=351006059d';
+import {createModel, parsed, itemsOf} from './model.mjs?v=351006059d';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=351006059d';
+import {store} from './store.mjs?v=351006059d';
+import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=351006059d';
+import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=351006059d';
+import {createReads} from './reads.mjs?v=351006059d';
+import {createVoiceControl} from './voicecontrol.mjs?v=351006059d';
+import {createDictation} from './dictation.mjs?v=351006059d';
+import {rankTopics, similarText} from './grammar.mjs?v=351006059d';
 
-const BUILD = 'v2.0-ae7c2b46b3';
+const BUILD = 'v2.0-351006059d';
 const log = createLog();
 const lat = createLatency(log);
 addEventListener('error', e => log('err', `${e.message} @${e.filename?.split('/').pop()}:${e.lineno}`));
@@ -725,10 +725,10 @@ async function deliver(l) {
     }
     if (l.items) {   // a voice reply: the service joins the transcripts and posts it, so nothing here waits for text
       const v = await voice.sendVoice({sendId: l.sendId, topic: topicOf(l.topic), streamId: streamOf(l.topic), items: l.items, cancelWord: vctl.cancelWord(), commandWord: vctl.commandWord()});
-      if (v.ok) { lat.finish('send:' + l.localId, 'server-posted'); l.state = 'sent'; removeLocal(l); saveOutbox(); if (v.empty) toast(v.discarded ? 'Reply cancelled' : 'Nothing was recognised in that recording'); return; }
+      if (v.ok) { lat.finish('send:' + l.localId, 'server-posted'); l.state = 'sent'; removeLocal(l); saveOutbox(); if (v.empty) { cue('empty'); toast(v.discarded ? 'Reply cancelled' : 'Nothing was recognised in that recording'); } return; }
       l.attempts = (l.attempts ?? 0) + 1;
       if (l.attempts <= 12) { l.state = 'queued'; refreshLocal(l); setTimeout(() => { if (l.state === 'queued') deliver(l); }, Math.min(1500 * 2 ** l.attempts, 15000)); }
-      else { l.state = 'failed'; refreshLocal(l); toast(v.error); }
+      else { l.state = 'failed'; refreshLocal(l); cue('error'); toast(v.error); }
       return;
     }
     const r = await zulip.call('POST', 'messages', {type: 'stream', to: streamOf(l.topic), topic: topicOf(l.topic), content: l.text, queue_id: events.queueId() ?? '', local_id: l.localId});
@@ -736,7 +736,7 @@ async function deliver(l) {
     l.uncertain = r.uncertain;
     l.attempts = (l.attempts ?? 0) + 1;
     if (l.attempts <= 8) { l.state = 'queued'; refreshLocal(l); setTimeout(() => { if (l.state === 'queued') deliver(l); }, Math.min(1500 * 2 ** l.attempts, 15000)); }
-    else { l.state = 'failed'; refreshLocal(l); toast(r.error); }
+    else { l.state = 'failed'; refreshLocal(l); cue('error'); toast(r.error); }
   } finally { l.inflight = false; }
 }
 
@@ -818,11 +818,14 @@ for (const dialog of document.querySelectorAll('dialog')) {
 
 
 // ---- connection and debug ----
-let lastState = 'connecting', lastAutoLogMs = 0;
+let lastState = 'connecting', lastAutoLogMs = 0, wasLimited = false;
+/** Every problem has its own sound (600-1600 Hz, played on the app's audio element): empty = nothing was sent, error = gave up, limited = Zulip rate limit. */
+function cue(kind) { player.earcon(EARCON_NOTES[kind], EARCON_NOTE_S); }
 function renderConn(info) {
   // After an outage the timeline is the evidence; send it once (at most every 2 min).
   if (info.state === 'live' && lastState !== 'live' && lastState !== 'connecting' && Date.now() - lastAutoLogMs > 120000 && cfg.relayStreamId) { lastAutoLogMs = Date.now(); sendLog('reconnected after ' + lastState); }
   lastState = info.state;
+  const limited = !!zulip.rateLimitedForMs(); if (limited && !wasLimited) cue('limited'); wasLimited = limited;
   const down = info.state === 'retrying' || info.state === 'offline';
   $('net').hidden = !down && !zulip.rateLimitedForMs();
   $('net').textContent = zulip.rateLimitedForMs() ? `Zulip is rate limiting this account; resuming in ${Math.ceil(zulip.rateLimitedForMs() / 1000)}s.` : 'No connection. Messages and audio will resume by themselves.';

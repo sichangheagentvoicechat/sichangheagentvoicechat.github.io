@@ -3,13 +3,13 @@
  * end word sends, cancel word discards. Owns the microphone (recorder), the on-device keyword spotter and the switch question.
  * Everything it does to playback, the feed or the composer goes through `ctx`.
  */
-import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=ae7c2b46b3';
-import {createKeywordSpotter} from './kws.mjs?v=ae7c2b46b3';
-import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=ae7c2b46b3';
-import {itemsOf} from './model.mjs?v=ae7c2b46b3';
-import {$, toast} from './chrome.mjs?v=ae7c2b46b3';
+import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=351006059d';
+import {createKeywordSpotter} from './kws.mjs?v=351006059d';
+import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=351006059d';
+import {itemsOf} from './model.mjs?v=351006059d';
+import {$, toast} from './chrome.mjs?v=351006059d';
 import {normalize, rankTopics, clearWinner, commandPhrases, afterStartWord as afterStart, stripResumePhrase as stripResume, isCommandWord as isCmd, isCancel, hasCancelWord as hasCancel, endsWithCancel as endsCancel,
-  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=ae7c2b46b3';
+  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=351006059d';
 
 const RESUME_SILENCE_MS = 1000;   // plus the recorder's 0.7 s end-of-utterance silence: about 1.7 s of quiet after the phrase
 const FOLLOW_UP_GRACE_MS = 6000;
@@ -376,7 +376,7 @@ export function createVoiceControl(ctx) {
     if (utterancePending) { vc.emptyTimer = setTimeout(closeEmptySession, 2000); return; }   // still talking (the clip's transcript is not back yet): never close mid-speech
     if (untranscribed()) { sendVoiceReplyNow('clips could not be transcribed here'); return; }   // offline: the audio is sent and transcribed by the server later
     log('vc', 'empty session timed out: resuming');
-    vc = null; recorder.setReplyMode(false); recorder.beep('done');
+    vc = null; recorder.setReplyMode(false); recorder.beep('empty');
     player.unlock();
     ctx.resumeAfterPause();
     vcIdle();
@@ -413,10 +413,10 @@ export function createVoiceControl(ctx) {
     vc = null; recorder.setReplyMode(false); lastReplyEndMs = Date.now();
     setDraft([reply.base.trim(), stripped].filter(Boolean).join(' ')); ctx.saveDraft();
     log('vc', `resume phrase + silence: reply "${stripped}"`);
-    recorder.beep('done');
+    recorder.beep(stripped ? 'done' : 'empty');
     const key = normalize(stripped);
     const duplicate = key && lastVoiceReply.key === key && Date.now() - lastVoiceReply.ms < 120000;   // never send the same reply twice
-    if (duplicate) log('vc', 'duplicate reply suppressed');
+    if (duplicate) { log('vc', 'duplicate reply suppressed'); recorder.beep('empty'); }
     if (stripped && !duplicate) { lastVoiceReply = {key, ms: Date.now()}; setVcState('sending', 'sending'); ctx.send(); }
     player.unlock();
     ctx.resumeAfterPause();
