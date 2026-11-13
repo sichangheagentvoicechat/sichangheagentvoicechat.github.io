@@ -215,6 +215,7 @@ export function createPlayer({log, voice, onItemStart, onItemEnd, onIdle, onStat
       log('audio', `external pause at t=${slot.el.currentTime.toFixed(2)}: resuming in place`);   // e.g. iOS interrupting for the microphone or a notification
       slot.el.play().catch(err => log('audio', `external pause resume failed: ${err.name}`));
     });
+    slot.el.addEventListener('error', () => { if (slot === active && status === 'playing') lastProgressMs = -1e9; });   // the element itself failed: reload at the next 1 s tick, do not wait out the 7 s stall timer
     for (const name of ['waiting', 'stalled', 'error', 'suspend', 'emptied']) slot.el.addEventListener(name, () => { if (slot === active) log('audio', `el ${name} t=${slot.el.currentTime.toFixed(2)} rs=${slot.el.readyState}`); });
   }
 
