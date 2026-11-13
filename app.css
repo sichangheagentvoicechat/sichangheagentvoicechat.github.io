@@ -173,3 +173,5 @@ html.picker-open, html.picker-open body { position: fixed; inset: 0; width: 100%
 #next-unread { position: relative; }
 #next-unread .arrow { font-size: 20px; line-height: 1; }
 #next-unread-count { position: absolute; top: -2px; right: -2px; background: var(--accent); color: var(--accent-fg); border-radius: 9px; font-size: 11px; min-width: 16px; line-height: 16px; text-align: center; }
+.msg.agent .mark-read { display: none; margin: 6px 0 0 auto; font-size: 13px; padding: 4px 12px; border-radius: 14px; background: var(--panel); color: var(--muted, inherit); border: 0; }
+.msg.agent.unread .mark-read { display: block; }

@@ -1,6 +1,6 @@
 /** DOM builders for messages and agent rows. No state. */
-import {inlineHtml, extractAttachments} from './text.mjs?v=487133c586';
-import {parsed} from './model.mjs?v=487133c586';
+import {inlineHtml, extractAttachments} from './text.mjs?v=79373e0996';
+import {parsed} from './model.mjs?v=79373e0996';
 
 const el = (tag, className, html) => { const e = document.createElement(tag); if (className) e.className = className; if (html !== undefined) e.innerHTML = html; return e; };
 const textEl = (tag, className, text) => { const e = el(tag, className); e.textContent = text; return e; };
@@ -36,6 +36,7 @@ export function agentEl(message, getUrl) {
     box.append(chip, text); root.append(box);
   }
   if (p.attachments.length) root.append(attachmentsEl(p.attachments, getUrl));
+  const mark = textEl('button', 'mark-read', 'Mark read'); mark.type = 'button'; mark.dataset.markRead = message.id; root.append(mark);   // shown only while unread (CSS): clears the dot without playing
   setUnread(root, !message.flags?.includes('read'));
   return root;
 }
