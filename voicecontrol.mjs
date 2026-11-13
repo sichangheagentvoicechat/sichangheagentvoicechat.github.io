@@ -3,18 +3,18 @@
  * end word sends, cancel word discards. Owns the microphone (recorder), the on-device keyword spotter and the switch question.
  * Everything it does to playback, the feed or the composer goes through `ctx`.
  */
-import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=fc699b2ef2';
-import {createKeywordSpotter} from './kws.mjs?v=fc699b2ef2';
-import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=fc699b2ef2';
-import {itemsOf} from './model.mjs?v=fc699b2ef2';
-import {$, toast} from './chrome.mjs?v=fc699b2ef2';
+import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=7f0c115d00';
+import {createKeywordSpotter} from './kws.mjs?v=7f0c115d00';
+import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=7f0c115d00';
+import {itemsOf} from './model.mjs?v=7f0c115d00';
+import {$, toast} from './chrome.mjs?v=7f0c115d00';
 import {normalize, rankTopics, clearWinner, commandPhrases, afterStartWord as afterStart, stripResumePhrase as stripResume, isCommandWord as isCmd, isCancel, hasCancelWord as hasCancel, endsWithCancel as endsCancel,
-  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=fc699b2ef2';
+  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=7f0c115d00';
 
 const RESUME_SILENCE_MS = 1000;   // plus the recorder's 0.7 s end-of-utterance silence: about 1.7 s of quiet after the phrase
 const FOLLOW_UP_GRACE_MS = 6000;
 const EMPTY_SESSION_MS = 8000;
-const COMMAND_SILENCE_MS = 4000;
+const COMMAND_SILENCE_MS = 8000;
 const CHOICE_MS = 20000;
 const START_MIN_SPEECH_MS = 250, START_MAX_NO_SPEECH = 0.6, START_MIN_LOGPROB = -1.0;
 const UPLOADS_PER_MIN = 8, EMPTY_RUN_BACKOFF = 3, BACKOFF_MS = 60000;
@@ -257,7 +257,7 @@ export function createVoiceControl(ctx) {
     const tokens = normalize(text).split(' ').filter(Boolean).filter(t => !isCommandWord(t));
     const done = [];
     const tick = name => { done.push(name); recorder.beep('tick'); };
-    let navigated = false, left = false;
+    let navigated = false, left = false; const ignored = [];
     const finishSession = (discard = false) => { if (!vc) return; clearTimeout(vc.timer); clearTimeout(vc.emptyTimer); setDraft(discard ? vc.base : vc.base + (vc.text ? (vc.base ? ' ' : '') + vc.text : '')); ctx.saveDraft(); vc = null; recorder.setReplyMode(false); };
     while (tokens.length && vc) {
       const t = tokens[0], two = tokens.slice(0, 2).join(' ');
@@ -272,7 +272,11 @@ export function createVoiceControl(ctx) {
       if (take) { const nav = navCommand(tokens.splice(0, take).join(' ')); ctx.navigate(nav); tick('navigate'); navigated = true; continue; }
       if (/^(stop|pause|wait)$/.test(t)) { tokens.shift(); player.pause(); tick('pause'); continue; }
       if (/^(play|resume|continue)$/.test(t)) { tokens.shift(); tick('play'); navigated = true; ctx.resumeAfterPause(); continue; }
-      log('vc', `command mode ignored "${t}"`); tokens.shift();
+      log('vc', `command mode ignored "${t}"`); tokens.shift(); ignored.push(t);
+    }
+    if (!done.length && ignored.length && vc) {   // heard something, understood nothing: say so and show the commands (silence would look like a hang)
+      const help = 'Commands: next, back, next message, previous message, next agent, switch to NAME, stop, play, cancel.';
+      log('vc', `command not recognized: "${ignored.join(' ')}"`); recorder.beep('empty'); toast(`Command not recognized: “${ignored.join(' ')}”. ${help}`); sayAndMute('Command not recognized. Say next, back, switch to, or cancel.');
     }
     if (done.length) log('vc', `commands: ${done.join(', ')}`);
     if (navigated && vc && !left) { finishSession(); vcIdle(); left = true; }
