@@ -272,6 +272,8 @@ export function createPlayer({log, voice, onItemStart, onItemEnd, onIdle, onStat
       }
     },
     ambientOn: () => ambientOn,
+    /** iOS can pause the pad on its own (audio session change, notification): restart it while it is meant to be on. Returns true if it had to. */
+    ambientKeep() { if (!ambientOn || !ambientEl.paused) return false; ambientEl.volume = 1; ambientEl.play().catch(() => {}); return true; },
     /** Plays a short synthesized earcon on the speech element (no AudioContext): same output path and level as speech, about -13 LUFS like the clips. */
     earcon(notes, noteS) {
       const hz = 24000, gain = 0.45, n = Math.round(noteS * hz), pcm = new Int16Array(n * notes.length);

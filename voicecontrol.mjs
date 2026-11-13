@@ -3,13 +3,13 @@
  * end word sends, cancel word discards. Owns the microphone (recorder), the on-device keyword spotter and the switch question.
  * Everything it does to playback, the feed or the composer goes through `ctx`.
  */
-import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=7f0c115d00';
-import {createKeywordSpotter} from './kws.mjs?v=7f0c115d00';
-import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=7f0c115d00';
-import {itemsOf} from './model.mjs?v=7f0c115d00';
-import {$, toast} from './chrome.mjs?v=7f0c115d00';
+import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=33305c50dd';
+import {createKeywordSpotter} from './kws.mjs?v=33305c50dd';
+import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=33305c50dd';
+import {itemsOf} from './model.mjs?v=33305c50dd';
+import {$, toast} from './chrome.mjs?v=33305c50dd';
 import {normalize, rankTopics, clearWinner, commandPhrases, afterStartWord as afterStart, stripResumePhrase as stripResume, isCommandWord as isCmd, isCancel, hasCancelWord as hasCancel, endsWithCancel as endsCancel,
-  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=7f0c115d00';
+  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=33305c50dd';
 
 const RESUME_SILENCE_MS = 1000;   // plus the recorder's 0.7 s end-of-utterance silence: about 1.7 s of quiet after the phrase
 const FOLLOW_UP_GRACE_MS = 6000;
@@ -256,7 +256,8 @@ export function createVoiceControl(ctx) {
   function runCommands(text) {
     const tokens = normalize(text).split(' ').filter(Boolean).filter(t => !isCommandWord(t));
     const done = [];
-    const tick = name => { done.push(name); recorder.beep('tick'); };
+    const said = [];   // what was done, in words: a bare sound never says which command it was
+    const tick = (name, words = name) => { done.push(name); said.push(words); recorder.beep('tick'); };
     let navigated = false, left = false; const ignored = [];
     const finishSession = (discard = false) => { if (!vc) return; clearTimeout(vc.timer); clearTimeout(vc.emptyTimer); setDraft(discard ? vc.base : vc.base + (vc.text ? (vc.base ? ' ' : '') + vc.text : '')); ctx.saveDraft(); vc = null; recorder.setReplyMode(false); };
     while (tokens.length && vc) {
@@ -269,9 +270,9 @@ export function createVoiceControl(ctx) {
       }
       if (CANCEL_RE.test(two) || CANCEL_RE.test(t)) { cancelSession(); return done; }
       const take = [3, 2, 1].find(n => navCommand(tokens.slice(0, n).join(' ')));   // longest prefix that is one navigation command ("next three", "previous message", "back")
-      if (take) { const nav = navCommand(tokens.splice(0, take).join(' ')); ctx.navigate(nav); tick('navigate'); navigated = true; continue; }
-      if (/^(stop|pause|wait)$/.test(t)) { tokens.shift(); player.pause(); tick('pause'); continue; }
-      if (/^(play|resume|continue)$/.test(t)) { tokens.shift(); tick('play'); navigated = true; ctx.resumeAfterPause(); continue; }
+      if (take) { const nav = navCommand(tokens.splice(0, take).join(' ')); ctx.navigate(nav); tick('navigate', `${nav.dir === 0 ? 'again' : nav.dir > 0 ? 'next' : 'back'}${nav.whole ? ' message' : ''}${nav.count > 1 ? ' ' + nav.count : ''}`); navigated = true; continue; }
+      if (/^(stop|pause|wait)$/.test(t)) { tokens.shift(); player.pause(); tick('pause', 'paused'); continue; }
+      if (/^(play|resume|continue)$/.test(t)) { tokens.shift(); tick('play', 'playing'); navigated = true; ctx.resumeAfterPause(); continue; }
       log('vc', `command mode ignored "${t}"`); tokens.shift(); ignored.push(t);
     }
     if (!done.length && ignored.length && vc) {   // heard something, understood nothing: say so and show the commands (silence would look like a hang)
@@ -279,6 +280,7 @@ export function createVoiceControl(ctx) {
       log('vc', `command not recognized: "${ignored.join(' ')}"`); recorder.beep('empty'); toast(`Command not recognized: “${ignored.join(' ')}”. ${help}`); sayAndMute('Command not recognized. Say next, back, switch to, or cancel.');
     }
     if (done.length) log('vc', `commands: ${done.join(', ')}`);
+    if (said.length) sayAndMute(said.join(', '));   // e.g. "next message", "back 2", "paused"
     if (navigated && vc && !left) { finishSession(); vcIdle(); left = true; }
     if (vc && !left) armCommandTimer();
     return done;

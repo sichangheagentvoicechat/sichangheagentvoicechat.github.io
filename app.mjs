@@ -1,21 +1,21 @@
 /** Wires the model, Zulip events, voice service, player, voice control and DOM: feed, playback order, read state, switching, sending. Behavior is described in `design.md`. */
-import {createLog} from './log.mjs?v=7f0c115d00';
-import {createLatency} from './latency.mjs?v=7f0c115d00';
-import {createZulip, createEvents} from './zulip.mjs?v=7f0c115d00';
-import {createVoice} from './voice.mjs?v=7f0c115d00';
-import {createPlayer} from './player.mjs?v=7f0c115d00';
-import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=7f0c115d00';
-import {createModel, parsed, itemsOf} from './model.mjs?v=7f0c115d00';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=7f0c115d00';
-import {store} from './store.mjs?v=7f0c115d00';
-import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=7f0c115d00';
-import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=7f0c115d00';
-import {createReads} from './reads.mjs?v=7f0c115d00';
-import {createVoiceControl} from './voicecontrol.mjs?v=7f0c115d00';
-import {createDictation} from './dictation.mjs?v=7f0c115d00';
-import {rankTopics, similarText} from './grammar.mjs?v=7f0c115d00';
+import {createLog} from './log.mjs?v=33305c50dd';
+import {createLatency} from './latency.mjs?v=33305c50dd';
+import {createZulip, createEvents} from './zulip.mjs?v=33305c50dd';
+import {createVoice} from './voice.mjs?v=33305c50dd';
+import {createPlayer} from './player.mjs?v=33305c50dd';
+import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=33305c50dd';
+import {createModel, parsed, itemsOf} from './model.mjs?v=33305c50dd';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=33305c50dd';
+import {store} from './store.mjs?v=33305c50dd';
+import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=33305c50dd';
+import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=33305c50dd';
+import {createReads} from './reads.mjs?v=33305c50dd';
+import {createVoiceControl} from './voicecontrol.mjs?v=33305c50dd';
+import {createDictation} from './dictation.mjs?v=33305c50dd';
+import {rankTopics, similarText} from './grammar.mjs?v=33305c50dd';
 
-const BUILD = 'v2.0-7f0c115d00';
+const BUILD = 'v2.0-33305c50dd';
 const log = createLog();
 const lat = createLatency(log);
 addEventListener('error', e => log('err', `${e.message} @${e.filename?.split('/').pop()}:${e.lineno}`));
@@ -506,6 +506,7 @@ setInterval(() => {
   const {status} = player.position(), waiting = (status === 'loading' || status === 'error' || status === 'blocked') && !vctl.userSpeaking() && !vctl.sessionOpen() && !dictation.active();
   if (!waiting) { waitingSinceMs = 0; if (player.ambientOn()) { log('audio', 'waiting sound off'); player.ambient(false); } return; }
   waitingSinceMs ||= Date.now();
+  if (player.ambientKeep()) log('audio', 'waiting sound had stopped by itself: restarted');
   if (Date.now() - waitingSinceMs >= WAITING_SOUND_AFTER_MS && !player.ambientOn()) { log('audio', `waiting sound on (${status} for ${Math.round((Date.now() - waitingSinceMs) / 1000)} s)`); player.ambient(true); }
 }, 1000);
 
