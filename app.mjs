@@ -1,21 +1,21 @@
 /** Wires the model, Zulip events, voice service, player, voice control and DOM: feed, playback order, read state, switching, sending. Behavior is described in `design.md`. */
-import {createLog} from './log.mjs?v=07a21ecf5d';
-import {createLatency} from './latency.mjs?v=07a21ecf5d';
-import {createZulip, createEvents} from './zulip.mjs?v=07a21ecf5d';
-import {createVoice} from './voice.mjs?v=07a21ecf5d';
-import {createPlayer} from './player.mjs?v=07a21ecf5d';
-import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=07a21ecf5d';
-import {createModel, parsed, itemsOf} from './model.mjs?v=07a21ecf5d';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=07a21ecf5d';
-import {store} from './store.mjs?v=07a21ecf5d';
-import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=07a21ecf5d';
-import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=07a21ecf5d';
-import {createReads} from './reads.mjs?v=07a21ecf5d';
-import {createVoiceControl} from './voicecontrol.mjs?v=07a21ecf5d';
-import {createDictation} from './dictation.mjs?v=07a21ecf5d';
-import {rankTopics, similarText} from './grammar.mjs?v=07a21ecf5d';
+import {createLog} from './log.mjs?v=1eea5d16a0';
+import {createLatency} from './latency.mjs?v=1eea5d16a0';
+import {createZulip, createEvents} from './zulip.mjs?v=1eea5d16a0';
+import {createVoice} from './voice.mjs?v=1eea5d16a0';
+import {createPlayer} from './player.mjs?v=1eea5d16a0';
+import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=1eea5d16a0';
+import {createModel, parsed, itemsOf} from './model.mjs?v=1eea5d16a0';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=1eea5d16a0';
+import {store} from './store.mjs?v=1eea5d16a0';
+import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=1eea5d16a0';
+import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=1eea5d16a0';
+import {createReads} from './reads.mjs?v=1eea5d16a0';
+import {createVoiceControl} from './voicecontrol.mjs?v=1eea5d16a0';
+import {createDictation} from './dictation.mjs?v=1eea5d16a0';
+import {rankTopics, similarText} from './grammar.mjs?v=1eea5d16a0';
 
-const BUILD = 'v2.0-07a21ecf5d';
+const BUILD = 'v2.0-1eea5d16a0';
 const log = createLog();
 const lat = createLatency(log);
 addEventListener('error', e => log('err', `${e.message} @${e.filename?.split('/').pop()}:${e.lineno}`));
@@ -423,6 +423,7 @@ function maybeAutoplay() {
   const unread = model.unreadAgentMessages(current);
   const speakable = unread.filter(m => itemsOf(m).some(pastWatermark));
   markRead(unread.filter(m => !itemsOf(m).length).map(m => m.id));
+  { const stale = unread.filter(m => itemsOf(m).length && !speakable.includes(m) && m.id !== store.get('voice2-pos', null)?.msgId); if (stale.length) { log('read', `${stale.length} unread message(s) already fully started (watermark): marking read`); markRead(stale.map(m => m.id)); } }   // the last chunk started (watermark) but the player stopped or the page reloaded before it ended: it is never played again, so it must not stay unread (blue dot)
   let pos = store.get('voice2-pos', null);
   if (pos && (model.find(pos.msgId)?.flags?.includes('read') || (pos.topic === current && !pastWatermark({msgId: pos.msgId, idx: pos.idx - 1})))) { store.set('voice2-pos', null); pos = null; }   // finished, or older than the watermark   // a finished message is never resumed
   const resumable = pos?.topic === current && model.find(pos.msgId) && itemsOf(model.find(pos.msgId), pos.idx).length;
