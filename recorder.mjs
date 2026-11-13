@@ -68,6 +68,7 @@ export function createRecorder({log, onClip, onLevel, onBarge, onCommandClip, on
   /** Every change of the iOS audio session type goes through here and is logged (`route ...`): changes make the output volume jump. */
   const setSession = type => { try { if (navigator.audioSession.type !== type) { navigator.audioSession.type = type; log('route', `audioSession.type -> ${type}`); } } catch { /* unsupported */ } };
   let epoch = 0, ctx = null, stream = null, node = null, sourceNode = null, warm = null, capturing = false, listening = false, replyMode = false, backoff = false, earconUntilMs = 0, speechMuteUntilMs = 0, overPromptFired = false, sustainMs = 0, idleTimer = 0;
+  let flowWaiters = [], framesSeen = 0;
   let frames = [], preroll = [], speechMs = 0, silentMs = 0, clipMs = 0, noise = 0.004, clipsOut = 0;
 
   function cut(final) {
@@ -91,6 +92,7 @@ export function createRecorder({log, onClip, onLevel, onBarge, onCommandClip, on
     if (!ctx || (!capturing && !listening)) return;   // frames after stop(), or while idle in the grace period
     if (listening && !capturing && onKwsAudio && performance.now() >= speechMuteUntilMs) onKwsAudio(toKwsRate(frame));
     const ms = frame.length / ctx.sampleRate * 1000;
+    if (capturing && flowWaiters.length && (framesSeen++ >= 2 || frame.some(x => x !== 0))) { const w = flowWaiters.splice(0); w.forEach(f => f(true)); }   // the microphone really delivers audio now (some start with a silent gap)
     let sum = 0;
     for (let i = 0; i < frame.length; i++) sum += frame[i] * frame[i];
     const level = Math.sqrt(sum / frame.length);
@@ -179,7 +181,7 @@ export function createRecorder({log, onClip, onLevel, onBarge, onCommandClip, on
     },
     async start() {
       if (capturing) return {ok: true};
-      capturing = true;
+      capturing = true; framesSeen = 0;
       frames = []; preroll = []; speechMs = silentMs = clipMs = 0; clipsOut = 0; sustainMs = 0;
       try {
         warm ??= built();
@@ -193,6 +195,8 @@ export function createRecorder({log, onClip, onLevel, onBarge, onCommandClip, on
         return {ok: false, error: error.name === 'NotAllowedError' ? 'Microphone permission denied. Allow it in Settings > Safari > Microphone.' : `Microphone unavailable (${error.name}).`};
       }
     },
+    /** Resolves true when audio frames are really arriving while capturing; false after `timeoutMs`. */
+    whenFlowing(timeoutMs = 3000) { return new Promise(res => { flowWaiters.push(res); setTimeout(() => { const i = flowWaiters.indexOf(res); if (i >= 0) { flowWaiters.splice(i, 1); res(false); } }, timeoutMs); }); },
     /** Emits the last partial clip and stops capturing; the microphone is released after the grace period. Also cancels a startup in progress. */
     stop() {
       if (capturing && ctx && frames.length) cut(true);

@@ -1,6 +1,6 @@
 /** Manual dictation from the composer's microphone button: clips are transcribed into the draft; "send" goes at once (unfinished clips as audio). */
-import {DOMAIN_PROMPT} from './text.mjs?v=1eea5d16a0';
-import {$, toast, showBanner, hideBanner} from './chrome.mjs?v=1eea5d16a0';
+import {DOMAIN_PROMPT} from './text.mjs?v=79e7523d26';
+import {$, toast, showBanner, hideBanner} from './chrome.mjs?v=79e7523d26';
 
 const joinText = (base, parts) => [base.trim(), ...parts].filter(Boolean).join(' ');
 
@@ -30,7 +30,13 @@ export function createDictation(ctx) {
     const mine = dict = {base: draft.value, parts: [], stopping: false, sendAfter: false, cancelled: false, wasPlaying};
     if (wasPlaying) player.pause();
     setRecordingUi(true); $('send').disabled = false;
+    $('composer').classList.add('warming'); draft.placeholder = 'Starting microphone…';   // not ready yet: the first moments of speech would be cut off
     const r = await ctx.recorder().start();
+    if (r.ok && dict === mine) {
+      const flowing = await ctx.recorder().whenFlowing();
+      if (dict === mine) { $('composer').classList.remove('warming'); draft.placeholder = 'Message'; if (flowing) ctx.recorder().beep('ready'); else toast('Microphone is slow to start; wait a moment before speaking'); log('mic', `dictation mic ${flowing ? 'ready' : 'not delivering audio after 3 s'}`); }
+    }
+    if (dict !== mine || !r.ok) { $('composer').classList.remove('warming'); draft.placeholder = 'Message'; }
     if (r.ok || dict !== mine) return;   // started, or the user already stopped it
     mine.stopping = true; mine.cancelled = true;
     if (r.error) toast(r.error);

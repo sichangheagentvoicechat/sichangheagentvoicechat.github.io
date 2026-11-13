@@ -167,3 +167,6 @@ html.picker-open, html.picker-open body { position: fixed; inset: 0; width: 100%
 #picker { overscroll-behavior: contain; }
 #picker #topics { touch-action: pan-y; overscroll-behavior: contain; }
 #picker::backdrop { touch-action: none; }
+#composer.warming #mic { background: var(--warn, #d9a400); animation: mic-warm 0.9s ease-in-out infinite; }
+#composer.warming #level { visibility: hidden; }
+@keyframes mic-warm { 50% { opacity: .45; } }
