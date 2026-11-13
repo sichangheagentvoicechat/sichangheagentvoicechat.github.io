@@ -247,7 +247,7 @@ export function createPlayer({log, voice, onItemStart, onItemEnd, onIdle, onStat
       if (status === 'blocked') start(active, gen);
     },
     isUnlocked: () => unlocked,
-    /** Faint relaxing music (soft bell-like pentatonic notes), made locally; `ambient(true)` fades it in over 2 s, `ambient(false)` fades it out. */
+    /** Faint relaxing music (soft bell-like pentatonic notes), made locally; `ambient(true)` fades it in over 2 s where volume works, `ambient(false)` stops it at once. */
     ambient(on) {
       if (on === ambientOn) return;
       ambientOn = on; clearInterval(ambientFade);
@@ -266,7 +266,8 @@ export function createPlayer({log, voice, onItemStart, onItemEnd, onIdle, onStat
         ambientEl.volume = 0; ambientEl.play().catch(() => {});
         ambientFade = setInterval(() => { ambientEl.volume = Math.min(1, ambientEl.volume + 0.05); if (ambientEl.volume >= 1) clearInterval(ambientFade); }, 100);   // iOS ignores volume: the pad is already quiet
       } else {
-        ambientFade = setInterval(() => { ambientEl.volume = Math.max(0, ambientEl.volume - 0.5); if (ambientEl.volume <= 0) { clearInterval(ambientFade); ambientEl.pause(); } }, 60);
+        // iOS ignores `volume` (it stays 1), so a fade-out can never reach 0 and stop the pad: pause at once
+        ambientEl.volume = 0; ambientEl.pause();
       }
     },
     ambientOn: () => ambientOn,
