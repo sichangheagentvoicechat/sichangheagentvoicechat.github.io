@@ -1,21 +1,21 @@
 /** Wires the model, Zulip events, voice service, player, voice control and DOM: feed, playback order, read state, switching, sending. Behavior is described in `design.md`. */
-import {createLog} from './log.mjs?v=be6660ccad';
-import {createLatency} from './latency.mjs?v=be6660ccad';
-import {createZulip, createEvents} from './zulip.mjs?v=be6660ccad';
-import {createVoice} from './voice.mjs?v=be6660ccad';
-import {createPlayer} from './player.mjs?v=be6660ccad';
-import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=be6660ccad';
-import {createModel, parsed, itemsOf} from './model.mjs?v=be6660ccad';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=be6660ccad';
-import {store} from './store.mjs?v=be6660ccad';
-import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=be6660ccad';
-import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=be6660ccad';
-import {createReads} from './reads.mjs?v=be6660ccad';
-import {createVoiceControl} from './voicecontrol.mjs?v=be6660ccad';
-import {createDictation} from './dictation.mjs?v=be6660ccad';
-import {rankTopics, similarText} from './grammar.mjs?v=be6660ccad';
+import {createLog} from './log.mjs?v=d47b61d150';
+import {createLatency} from './latency.mjs?v=d47b61d150';
+import {createZulip, createEvents} from './zulip.mjs?v=d47b61d150';
+import {createVoice} from './voice.mjs?v=d47b61d150';
+import {createPlayer} from './player.mjs?v=d47b61d150';
+import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=d47b61d150';
+import {createModel, parsed, itemsOf} from './model.mjs?v=d47b61d150';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=d47b61d150';
+import {store} from './store.mjs?v=d47b61d150';
+import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=d47b61d150';
+import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=d47b61d150';
+import {createReads} from './reads.mjs?v=d47b61d150';
+import {createVoiceControl} from './voicecontrol.mjs?v=d47b61d150';
+import {createDictation} from './dictation.mjs?v=d47b61d150';
+import {rankTopics, similarText} from './grammar.mjs?v=d47b61d150';
 
-const BUILD = 'v2.0-be6660ccad';
+const BUILD = 'v2.0-d47b61d150';
 const log = createLog();
 const lat = createLatency(log);
 addEventListener('error', e => log('err', `${e.message} @${e.filename?.split('/').pop()}:${e.lineno}`));
@@ -803,6 +803,12 @@ function fitPicker() {
 window.visualViewport?.addEventListener('resize', fitPicker);
 window.visualViewport?.addEventListener('scroll', fitPicker);
 $('picker').addEventListener('toggle', fitPicker);
+/** Sticky: while the picker is open the page behind it cannot scroll (iOS otherwise drags the whole menu with the page), and only the topic list scrolls. */
+$('picker').addEventListener('toggle', () => document.documentElement.classList.toggle('picker-open', $('picker').open));
+$('picker').addEventListener('close', () => { document.documentElement.classList.remove('picker-open'); scrollTo(0, 0); });
+$('picker').addEventListener('touchmove', e => { if (!e.target.closest('#topics')) e.preventDefault(); }, {passive: false});   // drags on the search row or backdrop do nothing
+$('picker').addEventListener('click', e => { if (e.target === $('picker')) $('picker').close(); });
+window.visualViewport?.addEventListener('scroll', () => { if ($('picker').open && visualViewport.offsetTop) scrollTo(0, 0); });
 // Enter in the search box closes the dialog and focus returns to the button, whose key-up would reopen it: ignore that click.
 $('agent').onclick = $('find').onclick = () => { if (Date.now() - pickerClosedMs < 400) return; $('search').value = ''; openPicker(); };
 $('search').oninput = openPicker;

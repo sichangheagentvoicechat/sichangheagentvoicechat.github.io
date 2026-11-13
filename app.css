@@ -163,3 +163,7 @@ pre { margin: 0; font: 12px/1.35 ui-monospace, Menlo, monospace; white-space: pr
 .keys { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; padding: 4px 16px 16px; }
 .keys dt { font-weight: 700; white-space: nowrap; }
 .keys dd { margin: 0; }
+html.picker-open, html.picker-open body { position: fixed; inset: 0; width: 100%; overflow: hidden; overscroll-behavior: none; touch-action: none; }
+#picker { overscroll-behavior: contain; }
+#picker #topics { touch-action: pan-y; overscroll-behavior: contain; }
+#picker::backdrop { touch-action: none; }
