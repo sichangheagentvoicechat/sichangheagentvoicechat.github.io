@@ -1,21 +1,21 @@
 /** Wires the model, Zulip events, voice service, player, voice control and DOM: feed, playback order, read state, switching, sending. Behavior is described in `design.md`. */
-import {createLog} from './log.mjs?v=e80d9b4f73';
-import {createLatency} from './latency.mjs?v=e80d9b4f73';
-import {createZulip, createEvents} from './zulip.mjs?v=e80d9b4f73';
-import {createVoice} from './voice.mjs?v=e80d9b4f73';
-import {createPlayer} from './player.mjs?v=e80d9b4f73';
-import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=e80d9b4f73';
-import {createModel, parsed, itemsOf} from './model.mjs?v=e80d9b4f73';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=e80d9b4f73';
-import {store} from './store.mjs?v=e80d9b4f73';
-import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=e80d9b4f73';
-import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=e80d9b4f73';
-import {createReads} from './reads.mjs?v=e80d9b4f73';
-import {createVoiceControl} from './voicecontrol.mjs?v=e80d9b4f73';
-import {createDictation} from './dictation.mjs?v=e80d9b4f73';
-import {rankTopics, similarText} from './grammar.mjs?v=e80d9b4f73';
+import {createLog} from './log.mjs?v=be6660ccad';
+import {createLatency} from './latency.mjs?v=be6660ccad';
+import {createZulip, createEvents} from './zulip.mjs?v=be6660ccad';
+import {createVoice} from './voice.mjs?v=be6660ccad';
+import {createPlayer} from './player.mjs?v=be6660ccad';
+import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=be6660ccad';
+import {createModel, parsed, itemsOf} from './model.mjs?v=be6660ccad';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=be6660ccad';
+import {store} from './store.mjs?v=be6660ccad';
+import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=be6660ccad';
+import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=be6660ccad';
+import {createReads} from './reads.mjs?v=be6660ccad';
+import {createVoiceControl} from './voicecontrol.mjs?v=be6660ccad';
+import {createDictation} from './dictation.mjs?v=be6660ccad';
+import {rankTopics, similarText} from './grammar.mjs?v=be6660ccad';
 
-const BUILD = 'v2.0-e80d9b4f73';
+const BUILD = 'v2.0-be6660ccad';
 const log = createLog();
 const lat = createLatency(log);
 addEventListener('error', e => log('err', `${e.message} @${e.filename?.split('/').pop()}:${e.lineno}`));
@@ -157,6 +157,8 @@ function updateJump() {
 function scrollToNow(force = false) {
   const target = feed.querySelector('.s.now');
   if (!target) return;
+  pinUntilMs = 0; cancelAnimationFrame(pinTimer);   // the playing place wins over "stay at the bottom" (after a switch the pin held the feed at the end for 2 s)
+  force = force || Date.now() - lastSwitchMs < 5000;   // right after a switch: jump, do not glide
   const box = feed.getBoundingClientRect(), r = target.getBoundingClientRect();
   if (!force && r.top >= box.top + 60 && r.bottom <= box.bottom - 20) return;
   feed.scrollTo({top: feed.scrollTop + r.top - box.top - box.height * 0.3, behavior: force || Math.abs(r.top - box.top) > box.height * 3 ? 'auto' : 'smooth'});
@@ -548,7 +550,9 @@ function switchBack() {
   return true;
 }
 
+let lastSwitchMs = 0;
 function switchTopic(topic, confirmed = false) {
+  lastSwitchMs = Date.now();
   setFollow(true);
   lat.begin('switchfeed', 'switch-render');
   lat.finish('switch', 'switched');
@@ -617,7 +621,7 @@ function openPicker() {
     const snip = last ? `${ago(last.timestamp)} · ${(model.isAgent(last) ? parsed(last).body || parsed(last).title : 'You: ' + last.content).replace(/\s+/g, ' ').slice(0, 90)}` : '';
     list.append(topicRow(t, snip, t.name === current, () => switchTopic(t.name)));
   }
-  if (!$('picker').open) { $('picker').showModal(); $('search').focus(); }
+  if (!$('picker').open) { $('picker').showModal(); fitPicker(); $('search').focus(); }
 }
 
 // ---- composer: typing and sending ----
@@ -789,6 +793,16 @@ for (const type of ['pointerup', 'touchend', 'click']) addEventListener(type, e 
 
 let pickerClosedMs = 0;
 $('picker').addEventListener('close', () => { pickerClosedMs = Date.now(); });
+/** The keyboard shrinks the visual viewport (and iOS may scroll it): keep the picker inside it, so no gap opens between the picker and the keyboard. */
+function fitPicker() {
+  const p = $('picker'), v = window.visualViewport;
+  if (!p.open || !v) return;
+  p.style.position = 'fixed'; p.style.top = v.offsetTop + 'px'; p.style.margin = '0 auto'; p.style.maxHeight = Math.max(160, v.height - 8) + 'px';
+  p.firstElementChild.style.maxHeight = p.style.maxHeight;
+}
+window.visualViewport?.addEventListener('resize', fitPicker);
+window.visualViewport?.addEventListener('scroll', fitPicker);
+$('picker').addEventListener('toggle', fitPicker);
 // Enter in the search box closes the dialog and focus returns to the button, whose key-up would reopen it: ignore that click.
 $('agent').onclick = $('find').onclick = () => { if (Date.now() - pickerClosedMs < 400) return; $('search').value = ''; openPicker(); };
 $('search').oninput = openPicker;
