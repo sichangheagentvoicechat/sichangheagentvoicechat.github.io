@@ -1,5 +1,5 @@
 /** Pure voice-command grammar: word matching, agent-name ranking, navigation phrases, start/end/cancel words. No DOM, no state. */
-import {soundsLikeWord, stripTrailingControl, leadingControlCount} from './text.mjs?v=79e7523d26';
+import {soundsLikeWord, stripTrailingControl, leadingControlCount} from './text.mjs?v=487133c586';
 
 export const RESUME_DEFAULT = 'tomato';   // the human's pick from the end-word study: 99% on-device detection, 0 false accepts in 4.9 h of speech
 export const START_DEFAULT = 'attention';   // chosen from the trigger-word study: long, no clipped final consonant, 98-100% detection, 0 false accepts
@@ -95,6 +95,7 @@ export const isCancel = (t, cancelWord) => /^(?:cancel|cancel that|never mind|sc
 export const hasCancelWord = (text, cancelWord) => normalize(text).split(' ').some(t => t === cancelWord || soundsLikeWord(cancelWord, [t]));
 /** True when the last sentence of `text` is only a cancel phrase ("Some reply. Cancel."). */
 export const endsWithCancel = (text, cancelWord) => isCancel(text.split(/[.!?]+/).map(x => normalize(x)).filter(Boolean).at(-1) ?? '', cancelWord);
+export const NEXT_AGENT_RE = /^(next (agent|thread|unread|unread agent|unread thread)|switch to (the )?next (agent|thread|unread)|go to (the )?next (agent|thread|unread))$/;
 export const SWITCH_BACK_RE = /^(switch back|go back|previous agent|(go|switch) back to (the )?previous agent|switch to (the )?previous agent)$/;
 export const POSITIVE_RE = /^(positive|yes|yeah|yep|sure|ok|okay|correct)$/;
 export const NEGATIVE_RE = /^(negative|no|nope|cancel|cancel that|none|never mind|scratch that|stop)$/;

@@ -170,3 +170,6 @@ html.picker-open, html.picker-open body { position: fixed; inset: 0; width: 100%
 #composer.warming #mic { background: var(--warn, #d9a400); animation: mic-warm 0.9s ease-in-out infinite; }
 #composer.warming #level { visibility: hidden; }
 @keyframes mic-warm { 50% { opacity: .45; } }
+#next-unread { position: relative; }
+#next-unread .arrow { font-size: 20px; line-height: 1; }
+#next-unread-count { position: absolute; top: -2px; right: -2px; background: var(--accent); color: var(--accent-fg); border-radius: 9px; font-size: 11px; min-width: 16px; line-height: 16px; text-align: center; }

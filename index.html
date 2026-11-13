@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="color-scheme" content="light dark">
 <title>Voice</title>
-<link rel="stylesheet" href="app.css?v=79e7523d26">
+<link rel="stylesheet" href="app.css?v=487133c586">
 </head>
 <body>
 <div id="app" hidden>
@@ -40,6 +40,7 @@
         <canvas id="level" width="120" height="24" hidden></canvas>
       </div>
       <button type="button" id="cancel-rec" class="icon" aria-label="Discard recording" hidden><svg viewBox="0 0 24 24" class="i"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      <button type="button" id="next-unread" class="icon round" hidden aria-label="Next agent with unread messages"><span class="arrow">⇥</span><span id="next-unread-count"></span></button>
       <button type="button" id="prev-agent" class="icon round" hidden aria-label="Back to the previous agent"><span class="arrow">↩</span><span id="prev-agent-name"></span></button>
       <button type="button" id="listen" class="icon round" data-state="off" aria-label="Voice control: off"><svg viewBox="0 0 24 24" class="i"><path d="M3 12h2M7 8v8M11 5v14M15 8v8M19 10v4"/></svg><span id="listen-label"></span></button>
       <button type="button" id="mic" class="icon round" aria-label="Dictate"><svg viewBox="0 0 24 24" class="i mic"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg><svg viewBox="0 0 24 24" class="i done"><path d="M5 13l4 4L19 7"/></svg></button>
@@ -115,6 +116,6 @@
   <button class="wide accent">Connect</button>
 </form></dialog>
 
-<script type="module" src="app.mjs?v=79e7523d26"></script>
+<script type="module" src="app.mjs?v=487133c586"></script>
 </body>
 </html>

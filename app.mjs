@@ -1,21 +1,21 @@
 /** Wires the model, Zulip events, voice service, player, voice control and DOM: feed, playback order, read state, switching, sending. Behavior is described in `design.md`. */
-import {createLog} from './log.mjs?v=79e7523d26';
-import {createLatency} from './latency.mjs?v=79e7523d26';
-import {createZulip, createEvents} from './zulip.mjs?v=79e7523d26';
-import {createVoice} from './voice.mjs?v=79e7523d26';
-import {createPlayer} from './player.mjs?v=79e7523d26';
-import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=79e7523d26';
-import {createModel, parsed, itemsOf} from './model.mjs?v=79e7523d26';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=79e7523d26';
-import {store} from './store.mjs?v=79e7523d26';
-import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=79e7523d26';
-import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=79e7523d26';
-import {createReads} from './reads.mjs?v=79e7523d26';
-import {createVoiceControl} from './voicecontrol.mjs?v=79e7523d26';
-import {createDictation} from './dictation.mjs?v=79e7523d26';
-import {rankTopics, similarText} from './grammar.mjs?v=79e7523d26';
+import {createLog} from './log.mjs?v=487133c586';
+import {createLatency} from './latency.mjs?v=487133c586';
+import {createZulip, createEvents} from './zulip.mjs?v=487133c586';
+import {createVoice} from './voice.mjs?v=487133c586';
+import {createPlayer} from './player.mjs?v=487133c586';
+import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=487133c586';
+import {createModel, parsed, itemsOf} from './model.mjs?v=487133c586';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=487133c586';
+import {store} from './store.mjs?v=487133c586';
+import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=487133c586';
+import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=487133c586';
+import {createReads} from './reads.mjs?v=487133c586';
+import {createVoiceControl} from './voicecontrol.mjs?v=487133c586';
+import {createDictation} from './dictation.mjs?v=487133c586';
+import {rankTopics, similarText} from './grammar.mjs?v=487133c586';
 
-const BUILD = 'v2.0-79e7523d26';
+const BUILD = 'v2.0-487133c586';
 const log = createLog();
 const lat = createLatency(log);
 addEventListener('error', e => log('err', `${e.message} @${e.filename?.split('/').pop()}:${e.lineno}`));
@@ -170,6 +170,7 @@ function renderUnread() {
   const other = model.topics().filter(t => t.name !== current).reduce((n, t) => n + t.unread, 0);
   $('agent-unread').hidden = !other;
   $('agent-unread').textContent = other;
+  renderNextButton();
 }
 
 
@@ -547,6 +548,15 @@ function renderPrevButton() {
   b.title = b.hidden ? '' : `Back to ${previousTopic}`;
   $('prev-agent-name').textContent = previousTopic ?? '';
 }
+/** Next thread with unread messages, in the picker's order (after the current one, wrapping round). */
+function switchNextUnread() {
+  const order = rank('').map(x => x.t), at = order.findIndex(t => t.name === current);
+  const next = [...order.slice(at + 1), ...order.slice(0, Math.max(0, at))].find(t => t.name !== current && t.unread > 0);
+  if (!next) { toast('No other agent has unread messages'); return false; }
+  switchTopic(next.name);
+  return true;
+}
+function renderNextButton() { const n = model.topics().filter(t => t.name !== current && t.unread > 0).length; $('next-unread').hidden = !n; $('next-unread-count').textContent = n; }
 function switchBack() {
   if (!previousTopic || previousTopic === current) { toast('No previous agent'); return false; }
   switchTopic(previousTopic);
@@ -650,7 +660,7 @@ function navigate({dir, whole, count}) {
 }
 
 const vctl = createVoiceControl({
-  store, log, lat, player, zulip, voice, model, draft: draftEl, autosize, saveDraft, navigate, send, sendLocal, switchTopic, switchBack, maybeAutoplay, resumeAfterPause,
+  store, log, lat, player, zulip, voice, model, draft: draftEl, autosize, saveDraft, navigate, send, sendLocal, switchTopic, switchBack, switchNextUnread, maybeAutoplay, resumeAfterPause,
   current: () => current, topicOf, dictating: () => dictation.active(), onClip: (...a) => dictation.onClip(...a), onLevel: drawLevel,
 });
 const dictation = createDictation({
@@ -966,7 +976,7 @@ addEventListener('keydown', e => {
 });
 
 // ---- start ----
-renderRate(); renderAuto(); renderPrevButton(); $('prev-agent').onclick = switchBack;
+renderRate(); renderAuto(); renderPrevButton(); $('prev-agent').onclick = switchBack; $('next-unread').onclick = switchNextUnread;
 // A saved Voice control setting re-arms after reload: try at once, else on the first tap anywhere.
 vctl.start();
 if (current) { draftEl.value = store.get('voice2-draft:' + current, ''); renderFeed(); renderUnread(); }
