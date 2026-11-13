@@ -1,6 +1,6 @@
 /** DOM builders for messages and agent rows. No state. */
-import {inlineHtml, extractAttachments} from './text.mjs?v=d47b61d150';
-import {parsed} from './model.mjs?v=d47b61d150';
+import {inlineHtml, extractAttachments} from './text.mjs?v=07a21ecf5d';
+import {parsed} from './model.mjs?v=07a21ecf5d';
 
 const el = (tag, className, html) => { const e = document.createElement(tag); if (className) e.className = className; if (html !== undefined) e.innerHTML = html; return e; };
 const textEl = (tag, className, text) => { const e = el(tag, className); e.textContent = text; return e; };

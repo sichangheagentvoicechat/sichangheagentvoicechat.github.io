@@ -1,21 +1,21 @@
 /** Wires the model, Zulip events, voice service, player, voice control and DOM: feed, playback order, read state, switching, sending. Behavior is described in `design.md`. */
-import {createLog} from './log.mjs?v=d47b61d150';
-import {createLatency} from './latency.mjs?v=d47b61d150';
-import {createZulip, createEvents} from './zulip.mjs?v=d47b61d150';
-import {createVoice} from './voice.mjs?v=d47b61d150';
-import {createPlayer} from './player.mjs?v=d47b61d150';
-import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=d47b61d150';
-import {createModel, parsed, itemsOf} from './model.mjs?v=d47b61d150';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=d47b61d150';
-import {store} from './store.mjs?v=d47b61d150';
-import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=d47b61d150';
-import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=d47b61d150';
-import {createReads} from './reads.mjs?v=d47b61d150';
-import {createVoiceControl} from './voicecontrol.mjs?v=d47b61d150';
-import {createDictation} from './dictation.mjs?v=d47b61d150';
-import {rankTopics, similarText} from './grammar.mjs?v=d47b61d150';
+import {createLog} from './log.mjs?v=07a21ecf5d';
+import {createLatency} from './latency.mjs?v=07a21ecf5d';
+import {createZulip, createEvents} from './zulip.mjs?v=07a21ecf5d';
+import {createVoice} from './voice.mjs?v=07a21ecf5d';
+import {createPlayer} from './player.mjs?v=07a21ecf5d';
+import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=07a21ecf5d';
+import {createModel, parsed, itemsOf} from './model.mjs?v=07a21ecf5d';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=07a21ecf5d';
+import {store} from './store.mjs?v=07a21ecf5d';
+import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=07a21ecf5d';
+import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=07a21ecf5d';
+import {createReads} from './reads.mjs?v=07a21ecf5d';
+import {createVoiceControl} from './voicecontrol.mjs?v=07a21ecf5d';
+import {createDictation} from './dictation.mjs?v=07a21ecf5d';
+import {rankTopics, similarText} from './grammar.mjs?v=07a21ecf5d';
 
-const BUILD = 'v2.0-d47b61d150';
+const BUILD = 'v2.0-07a21ecf5d';
 const log = createLog();
 const lat = createLatency(log);
 addEventListener('error', e => log('err', `${e.message} @${e.filename?.split('/').pop()}:${e.lineno}`));
@@ -66,10 +66,11 @@ const player = createPlayer({
   log, voice,
   onItemStart(item) { log('audio', `start ${item.key}`); lat.finish('play:' + item.msgId, 'ready+playing'); if (burst?.pending) return; store.set('voice2-pos', {topic: current, msgId: item.msgId, idx: item.idx}); store.set('voice2-last', {topic: current, msgId: item.msgId, idx: item.idx}); if (after(item, watermark())) store.set(wmKey(current), {msgId: item.msgId, idx: item.idx}); pausedItem = {topic: current, msgId: item.msgId, idx: item.idx}; const before = model.unreadAgentMessages(current).filter(m => m.id < item.msgId).map(m => m.id); if (before.length) markRead(before); nowMsgId = item.msgId; nowIdx = item.idx; highlight(); if (follow) scrollToNow(); updateJump(); setMediaSession(item); },
   onItemEnd(item) {
-    if (!item.last) return;
+    if (!item.last) { if (burst) log('read', `chunk ${item.key} ended mid-skip (not last)`); return; }
     store.set('voice2-pos', null); if (pausedItem?.msgId === item.msgId) pausedItem = null;
     const played = model.find(item.msgId), wasUnread = played && !played.flags?.includes('read');
     if (wasUnread && !pendingSwitch && parsed(played).switchTo && !hasActed(item.msgId)) pendingSwitch = {to: parsed(played).switchTo, msgId: item.msgId};   // also for messages played from the backlog after a reload
+    log('read', `message ${item.msgId} finished${wasUnread ? '' : ' (was already read)'}`);
     markRead([item.msgId]);
     if (pendingSwitch?.msgId === item.msgId) runSwitch();
   },
@@ -441,6 +442,7 @@ function endOfQueue() {
   setFollow(true);
   clearTimeout(burst?.timer); burst = null;
   player.stop(); nowMsgId = null; highlight();
+  log('read', `end of messages: marking ${model.unreadAgentMessages(current).length} unread as read`);
   markRead(model.agentMessages(current).map(m => m.id));
   store.set('voice2-pos', null);
   toast('End of messages');
