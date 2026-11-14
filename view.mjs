@@ -1,6 +1,6 @@
 /** DOM builders for messages and agent rows. No state. */
-import {inlineHtml, extractAttachments} from './text.mjs?v=4ce7472ca3';
-import {parsed} from './model.mjs?v=4ce7472ca3';
+import {inlineHtml, extractAttachments} from './text.mjs?v=ee4894b7f6';
+import {parsed} from './model.mjs?v=ee4894b7f6';
 
 const el = (tag, className, html) => { const e = document.createElement(tag); if (className) e.className = className; if (html !== undefined) e.innerHTML = html; return e; };
 const textEl = (tag, className, text) => { const e = el(tag, className); e.textContent = text; return e; };
@@ -80,8 +80,8 @@ export function attachmentsEl(attachments, getUrl) {
       box.replaceChildren();
       box.classList.toggle('chip', hidden() || !isImage);
       if (hidden() || !isImage) {
-        const chip = textEl('button', 'chipbtn', (isImage ? '🖼 ' : '📎 ') + a.name);
-        chip.onclick = () => { if (isImage) { collapsed.delete(a.uri); expanded.add(a.uri); saveSet(collapsedKey, collapsed); saveSet(expandedKey, expanded); render(); } else open(); };
+        const chip = textEl('button', 'chipbtn', (isImage ? '🖼 ' : '📎 ') + a.name + (isImage ? ' · tap to show' : ''));
+        chip.onclick = () => { if (isImage) { collapsed.delete(a.uri); expanded.add(a.uri); saveSet(expandedKey, expanded); render(); } else open(); };
         box.append(chip);
         return;
       }
@@ -95,7 +95,10 @@ export function attachmentsEl(attachments, getUrl) {
       img.onerror = () => { if (++tries < 4) setTimeout(load, 1500 * tries); else img.alt = a.name + ' (could not load)'; };   // expired or dropped: fetch again instead of leaving a blank
       new IntersectionObserver((entries, o) => { if (entries[0].isIntersecting) { o.disconnect(); load(); } }).observe(img);
       img.onclick = open;
-      box.append(img);
+      const cap = el('div', 'attcap'), name = textEl('span', 'attname', a.name), hide = textEl('button', 'atthide', 'Hide');   // the name is always visible: agents refer to pictures by it
+      hide.type = 'button'; hide.onclick = () => { collapsed.add(a.uri); expanded.delete(a.uri); saveSet(expandedKey, expanded); render(); };
+      cap.append(name, hide);
+      box.append(img, cap);
     };
     let x0 = null, y0 = 0;
     box.addEventListener('touchstart', e => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, {passive: true});

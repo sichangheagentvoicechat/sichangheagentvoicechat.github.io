@@ -180,3 +180,6 @@ html.picker-open, html.picker-open body { position: fixed; inset: 0; width: 100%
 .body th, .body td { padding: 6px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--panel); }
 .body th { background: var(--panel); font-weight: 600; white-space: nowrap; }
 .body tr:last-child td { border-bottom: 0; }
+.att .attcap { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 13px; color: var(--muted, inherit); opacity: .85; }
+.att .attname { flex: 1; min-width: 0; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
+.att .atthide { background: var(--panel); border: 0; border-radius: 12px; padding: 3px 10px; font-size: 12px; color: inherit; }
