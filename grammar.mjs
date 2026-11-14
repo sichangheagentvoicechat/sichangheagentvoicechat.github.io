@@ -1,10 +1,10 @@
 /** Pure voice-command grammar: word matching, agent-name ranking, navigation phrases, start/end/cancel words. No DOM, no state. */
-import {soundsLikeWord, stripTrailingControl, leadingControlCount} from './text.mjs?v=026827672a';
+import {soundsLikeWord, stripTrailingControl, leadingControlCount} from './text.mjs?v=3b1104d891';
 
 export const RESUME_DEFAULT = 'tomato';   // the human's pick from the end-word study: 99% on-device detection, 0 false accepts in 4.9 h of speech
 export const START_DEFAULT = 'attention';   // chosen from the trigger-word study: long, no clipped final consonant, 98-100% detection, 0 false accepts
 export const CMD_DEFAULT = 'katana';
-export const CANCEL_WORD_DEFAULT = 'bamboo';   // the rare word the human picked (study: 90% hit, 0 false accepts in 4.9 h); "cancel" and friends keep working as server-path aliases
+export const CANCEL_WORD_DEFAULT = 'macaroni';   // the human picked it (round-2 study: 96% hit, 0 false accepts in 4.9 h; "bamboo" 88%, replaced); "cancel" and friends keep working as server-path aliases
 export const LONG_SILENCE_DEFAULT_S = 20;   // the end word is the main end signal; a short silence cut replies off while the user was still thinking
 export const SWITCH_MIN_SCORE = 0.8;
 

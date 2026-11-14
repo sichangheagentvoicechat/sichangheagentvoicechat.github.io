@@ -104,7 +104,7 @@ export function messageChunks(body) {
     if (block.kind === 'table') {   // "Table start.", then per row "Row N." and every cell as its own chunk (its own audio clip: long pauses between cells)
       chunks.push({block: b, text: 'Table start.', r: -1, c: -1});
       [block.head, ...block.rows].forEach((row, r) => {
-        chunks.push({block: b, text: `Row ${r + 1}.`, r, c: -1});
+        if (r > 0) chunks.push({block: b, text: `Row ${r}.`, r, c: -1});   // the header is read right after "Table start." and is not a numbered row
         block.head.forEach((_, c) => { const text = (row[c] ?? '').trim(); if (text) chunks.push({block: b, text: /[.!?]$/.test(text) ? text : text + '.', r, c}); });
       });
       return;
@@ -212,12 +212,12 @@ export function soundsLikeWord(word, parts) {
 export function looksLikeClippedEndWord(word) { const k = soundKey(word); return k.length >= 5 && distance(k, CONTROL.tomato.key) <= 2; }
 
 /* ---- Reply assembly rules shared by the client and the relay's `send` ---- */
-const COMMAND_VOCAB = new Set('attention katana tomato bamboo cancel never mind skip jump forward backward back next previous message messages again stop play resume switch to agent agents number one two three four five six seven eight nine ten positive negative yes no over send pencil'.split(' '));
+const COMMAND_VOCAB = new Set('attention katana tomato macaroni bamboo cancel never mind skip jump forward backward back next previous message messages again stop play resume switch to agent agents number one two three four five six seven eight nine ten positive negative yes no over send pencil'.split(' '));
 /**
  * `texts` (one transcript per clip, in order) -> `{text, discard}`. Rules: a transcript containing the cancel word ("bamboo", phonetic: "Rambo") discards everything; "cancel"/"never mind"
  * as the last utterance discards everything; in each clip the command word and all that follows it is dropped; stray end words go; a reply made only of control words is empty.
  */
-export function assembleReply(texts, {cancelWord = 'bamboo', commandWord = 'katana'} = {}) {
+export function assembleReply(texts, {cancelWord = 'macaroni', commandWord = 'katana'} = {}) {
   const tokens = t => t.split(/\s+/).filter(Boolean), flat = w => w.toLowerCase().replace(/[^a-z]/g, '');
   const parts = [];
   for (const raw of texts) {

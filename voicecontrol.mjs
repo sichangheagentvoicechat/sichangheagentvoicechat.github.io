@@ -3,13 +3,13 @@
  * end word sends, cancel word discards. Owns the microphone (recorder), the on-device keyword spotter and the switch question.
  * Everything it does to playback, the feed or the composer goes through `ctx`.
  */
-import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=026827672a';
-import {createKeywordSpotter} from './kws.mjs?v=026827672a';
-import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=026827672a';
-import {itemsOf} from './model.mjs?v=026827672a';
-import {$, toast} from './chrome.mjs?v=026827672a';
+import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=3b1104d891';
+import {createKeywordSpotter} from './kws.mjs?v=3b1104d891';
+import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=3b1104d891';
+import {itemsOf} from './model.mjs?v=3b1104d891';
+import {$, toast} from './chrome.mjs?v=3b1104d891';
 import {normalize, rankTopics, clearWinner, commandPhrases, afterStartWord as afterStart, stripResumePhrase as stripResume, isCommandWord as isCmd, isCancel, hasCancelWord as hasCancel, endsWithCancel as endsCancel,
-  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, SEND_LOG_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=026827672a';
+  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, SEND_LOG_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=3b1104d891';
 
 const RESUME_SILENCE_MS = 1000;   // plus the recorder's 0.7 s end-of-utterance silence: about 1.7 s of quiet after the phrase
 const FOLLOW_UP_GRACE_MS = 6000;
@@ -37,7 +37,7 @@ export function createVoiceControl(ctx) {
   const startWord = () => normalize(store.get('voice2-start-word', START_DEFAULT));
   const resumePhrase = () => store.get('voice2-resume-phrase', RESUME_DEFAULT);
   const commandWord = () => normalize(store.get('voice2-cmd-word', CMD_DEFAULT)) || CMD_DEFAULT;
-  const cancelWord = () => normalize(store.get('voice2-cancel-word', CANCEL_WORD_DEFAULT)) || CANCEL_WORD_DEFAULT;
+  const cancelWord = () => { const w = normalize(store.get('voice2-cancel-word', CANCEL_WORD_DEFAULT)); return !w || w === 'bamboo' ? CANCEL_WORD_DEFAULT : w; };   // a saved "bamboo" is the old default: migrate it
   const afterStartWord = text => afterStart(text, startWord());
   const stripResumePhrase = text => stripResume(text, resumePhrase());
   const isCommandWord = w => isCmd(w, commandWord());
@@ -79,7 +79,7 @@ export function createVoiceControl(ctx) {
   function interruptPrompt(by) { player.stopSay(); sayingUntil = 0; announcingUntil = 0; recorder.unmute(); log('vc', `prompt interrupted by ${by}`); }
 
   // ---- on-device keywords ----
-  /** "attention" opens a session at once (pausing playback, no upload); "katana" from standby enters command mode; "bamboo" cancels; "tomato" ends command mode or sends. */
+  /** "attention" opens a session at once (pausing playback, no upload); "katana" from standby enters command mode; "macaroni" cancels; "tomato" ends command mode or sends. */
   function onKwsHit(word) {
     if (!voiceControl || !kwsEnabled() || ctx.dictating() || Date.now() - (kwsHitMs[word] ?? 0) < 1500) return;   // the same word twice in a row is one hit; a different word may follow at once ("attention katana")
     kwsHitMs[word] = lastHitAt = Date.now();
@@ -89,7 +89,7 @@ export function createVoiceControl(ctx) {
       if (!lat.has('sw')) lat.begin('sw', 'startword');
       lat.stage('sw', 'kws-local');
       openSession('');
-    } else if (word === 'BAMBOO' && cancelWord() === 'bamboo') {
+    } else if (word === 'MACARONI' && cancelWord() === 'macaroni') {
       if (vc) cancelSession(); else if (pendingChoice) cancelChoice();
     } else if (word === 'KATANA' && commandWord() === 'katana' && !vc && !choiceOpen()) {   // the command word alone enters command mode: no start word first, one sound
       openSession('', true);
