@@ -1,5 +1,5 @@
 /** Conversation state (pure data, no DOM, no network): messages per topic, unread, play queues. */
-import {parseAgentMessage, messageChunks} from './text.mjs?v=ef0d107560';
+import {parseAgentMessage, messageChunks} from './text.mjs?v=44dca1d541';
 
 const parsedCache = new WeakMap();
 
@@ -23,7 +23,7 @@ export function itemsOf(message, fromIdx = 0) {
 export function createModel({botId, humanId}) {
   const authoritativeSkip = false;
   const byTopic = new Map();
-  const topics = new Map();
+  const topics = new Map(); let priorities = {};
   const loaded = new Set();
   const isAgent = m => m.sender_id === botId;
   const topicInfo = name => { let t = topics.get(name); if (!t) { t = {name, maxId: 0, unread: 0}; topics.set(name, t); } return t; };
@@ -65,9 +65,12 @@ export function createModel({botId, humanId}) {
       for (const {name, max_id} of list) { const t = topicInfo(name); t.maxId = Math.max(t.maxId, max_id); }
       for (const t of topics.values()) t.unread = unreadByTopic.get(t.name) ?? 0;
     },
+    /** Human-manager priorities (topic -> number or null; lower = first, unset last). */
+    setPriorities(map) { priorities = map ?? {}; },
     topics() {
       for (const t of topics.values()) if (loaded.has(t.name)) t.unread = this.unreadAgentMessages(t.name).length;
-      return [...topics.values()].sort((a, b) => b.maxId - a.maxId);
+      const rank = n => priorities[n] ?? Infinity;   // Infinity - Infinity is NaN: compare explicitly
+      return [...topics.values()].sort((a, b) => (rank(a.name) === rank(b.name) ? 0 : rank(a.name) < rank(b.name) ? -1 : 1) || b.maxId - a.maxId);
     },
     hasTopic: name => topics.has(name),
     lastMessage(topic) { return this.messages(topic).at(-1); },
