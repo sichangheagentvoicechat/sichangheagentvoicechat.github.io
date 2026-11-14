@@ -1,6 +1,6 @@
 /** DOM builders for messages and agent rows. No state. */
-import {inlineHtml, extractAttachments} from './text.mjs?v=9b74db593c';
-import {parsed} from './model.mjs?v=9b74db593c';
+import {inlineHtml, extractAttachments} from './text.mjs?v=fd3aa70536';
+import {parsed} from './model.mjs?v=fd3aa70536';
 
 const el = (tag, className, html) => { const e = document.createElement(tag); if (className) e.className = className; if (html !== undefined) e.innerHTML = html; return e; };
 const textEl = (tag, className, text) => { const e = el(tag, className); e.textContent = text; return e; };
@@ -97,7 +97,7 @@ export function attachmentsEl(attachments, getUrl) {
     };
     let x0 = null;
     box.addEventListener('touchstart', e => { x0 = e.touches[0].clientX; }, {passive: true});
-    box.addEventListener('touchend', e => { if (x0 !== null && isImage && Math.abs(e.changedTouches[0].clientX - x0) > 50) { collapsed.add(a.uri); expanded.delete(a.uri); render(); }   // this session only x0 = null; }, {passive: true});
+    box.addEventListener('touchend', e => { if (x0 !== null && isImage && Math.abs(e.changedTouches[0].clientX - x0) > 50) { collapsed.add(a.uri); expanded.delete(a.uri); render(); } x0 = null; }, {passive: true});   // swipe-collapse: this session only
     box.collapse = () => { collapsed.add(a.uri); expanded.delete(a.uri); render(); };
     render();
     wrap.append(box);
