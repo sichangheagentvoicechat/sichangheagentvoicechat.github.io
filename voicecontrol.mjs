@@ -3,13 +3,13 @@
  * end word sends, cancel word discards. Owns the microphone (recorder), the on-device keyword spotter and the switch question.
  * Everything it does to playback, the feed or the composer goes through `ctx`.
  */
-import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=33305c50dd';
-import {createKeywordSpotter} from './kws.mjs?v=33305c50dd';
-import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=33305c50dd';
-import {itemsOf} from './model.mjs?v=33305c50dd';
-import {$, toast} from './chrome.mjs?v=33305c50dd';
+import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=ef0d107560';
+import {createKeywordSpotter} from './kws.mjs?v=ef0d107560';
+import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=ef0d107560';
+import {itemsOf} from './model.mjs?v=ef0d107560';
+import {$, toast} from './chrome.mjs?v=ef0d107560';
 import {normalize, rankTopics, clearWinner, commandPhrases, afterStartWord as afterStart, stripResumePhrase as stripResume, isCommandWord as isCmd, isCancel, hasCancelWord as hasCancel, endsWithCancel as endsCancel,
-  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=33305c50dd';
+  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, SEND_LOG_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=ef0d107560';
 
 const RESUME_SILENCE_MS = 1000;   // plus the recorder's 0.7 s end-of-utterance silence: about 1.7 s of quiet after the phrase
 const FOLLOW_UP_GRACE_MS = 6000;
@@ -262,6 +262,7 @@ export function createVoiceControl(ctx) {
     const finishSession = (discard = false) => { if (!vc) return; clearTimeout(vc.timer); clearTimeout(vc.emptyTimer); setDraft(discard ? vc.base : vc.base + (vc.text ? (vc.base ? ' ' : '') + vc.text : '')); ctx.saveDraft(); vc = null; recorder.setReplyMode(false); };
     while (tokens.length && vc) {
       const t = tokens[0], two = tokens.slice(0, 2).join(' ');
+      if (SEND_LOG_RE.test(two) || SEND_LOG_RE.test(tokens.slice(0, 3).join(' '))) { tokens.splice(0, SEND_LOG_RE.test(two) ? 2 : 3); log('vc', 'send log by voice'); tick('log', 'sending the log'); ctx.sendLog('voice command').then(r => { if (!r?.ok) sayAndMute('Sending the log failed'); }); continue; }
       if (NEXT_AGENT_RE.test(tokens.slice(0, 4).join(' ')) || NEXT_AGENT_RE.test(tokens.slice(0, 3).join(' ')) || NEXT_AGENT_RE.test(two)) { log('vc', 'next agent with unread messages'); done.push('next agent'); finishSession(true); bargePaused = false; ctx.switchNextUnread(); left = true; break; }
       if (SWITCH_BACK_RE.test(tokens.slice(0, 3).join(' ')) || SWITCH_BACK_RE.test(two)) { log('vc', 'switch back to the previous agent'); done.push('switch back'); finishSession(true); bargePaused = false; ctx.switchBack(); left = true; break; }
       if (/^(switch|switched|switching|go)$/.test(t) && /^(to|agent|agents)$/.test(tokens[1] ?? '')) {   // Whisper often hears "switched to"; the name is free-form: it takes the rest of the utterance and ends the chain
