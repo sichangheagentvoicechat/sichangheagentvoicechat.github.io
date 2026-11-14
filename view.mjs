@@ -1,6 +1,6 @@
 /** DOM builders for messages and agent rows. No state. */
-import {inlineHtml, extractAttachments} from './text.mjs?v=44dca1d541';
-import {parsed} from './model.mjs?v=44dca1d541';
+import {inlineHtml, extractAttachments} from './text.mjs?v=07d8398765';
+import {parsed} from './model.mjs?v=07d8398765';
 
 const el = (tag, className, html) => { const e = document.createElement(tag); if (className) e.className = className; if (html !== undefined) e.innerHTML = html; return e; };
 const textEl = (tag, className, text) => { const e = el(tag, className); e.textContent = text; return e; };
@@ -13,6 +13,14 @@ export function agentEl(message, getUrl) {
   if (p.title) root.append(textEl('div', 'title', p.title.replace(/^\[[^\]]*\]\s*/, '') || p.title));
   const body = el('div', 'body');
   p.blocks.forEach((block, b) => {
+    if (block.kind === 'table') {   // shown, not read aloud; scrolls sideways when wide
+      const wrap = el('div', 'table-wrap'), table = el('table'), thead = el('thead'), headRow = el('tr');
+      for (const c of block.head) { const th = el('th'); th.innerHTML = inlineHtml(c); headRow.append(th); }
+      thead.append(headRow); table.append(thead);
+      const tbody = el('tbody');
+      for (const row of block.rows) { const tr = el('tr'); block.head.forEach((_, i) => { const td = el('td'); td.innerHTML = inlineHtml(row[i] ?? ''); tr.append(td); }); tbody.append(tr); }
+      table.append(tbody); wrap.append(table); body.append(wrap); return;
+    }
     if (block.kind === 'code') { const pre = el('pre'); pre.append(textEl('code', '', block.text)); body.append(pre); return; }
     const node = el(block.kind === 'h' ? 'h4' : 'p', block.kind === 'li' ? 'li' : '');
     if (block.kind === 'li') node.prepend('• ');
