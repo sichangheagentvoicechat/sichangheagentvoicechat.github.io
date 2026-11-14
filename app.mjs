@@ -1,21 +1,21 @@
 /** Wires the model, Zulip events, voice service, player, voice control and DOM: feed, playback order, read state, switching, sending. Behavior is described in `design.md`. */
-import {createLog} from './log.mjs?v=3b1104d891';
-import {createLatency} from './latency.mjs?v=3b1104d891';
-import {createZulip, createEvents} from './zulip.mjs?v=3b1104d891';
-import {createVoice} from './voice.mjs?v=3b1104d891';
-import {createPlayer} from './player.mjs?v=3b1104d891';
-import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=3b1104d891';
-import {createModel, parsed, itemsOf} from './model.mjs?v=3b1104d891';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=3b1104d891';
-import {store} from './store.mjs?v=3b1104d891';
-import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=3b1104d891';
-import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=3b1104d891';
-import {createReads} from './reads.mjs?v=3b1104d891';
-import {createVoiceControl} from './voicecontrol.mjs?v=3b1104d891';
-import {createDictation} from './dictation.mjs?v=3b1104d891';
-import {rankTopics, similarText} from './grammar.mjs?v=3b1104d891';
+import {createLog} from './log.mjs?v=9b74db593c';
+import {createLatency} from './latency.mjs?v=9b74db593c';
+import {createZulip, createEvents} from './zulip.mjs?v=9b74db593c';
+import {createVoice} from './voice.mjs?v=9b74db593c';
+import {createPlayer} from './player.mjs?v=9b74db593c';
+import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=9b74db593c';
+import {createModel, parsed, itemsOf} from './model.mjs?v=9b74db593c';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=9b74db593c';
+import {store} from './store.mjs?v=9b74db593c';
+import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=9b74db593c';
+import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=9b74db593c';
+import {createReads} from './reads.mjs?v=9b74db593c';
+import {createVoiceControl} from './voicecontrol.mjs?v=9b74db593c';
+import {createDictation} from './dictation.mjs?v=9b74db593c';
+import {rankTopics, similarText} from './grammar.mjs?v=9b74db593c';
 
-const BUILD = 'v2.0-3b1104d891';
+const BUILD = 'v2.0-9b74db593c';
 const log = createLog();
 const lat = createLatency(log);
 addEventListener('error', e => log('err', `${e.message} @${e.filename?.split('/').pop()}:${e.lineno}`));
@@ -109,9 +109,10 @@ function pinBottom() {
 
 /** Signed temporary link for an upload (one call, cached for 50 s). */
 const attCache = new Map();
-async function attUrl(uri) {
+addEventListener('att-log', e => log('att', e.detail));
+async function attUrl(uri, fresh = false) {
   const hit = attCache.get(uri);
-  if (hit && Date.now() - hit.at < 50000) return hit.r;
+  if (!fresh && hit && Date.now() - hit.at < 50000) return hit.r;
   const z = await zulip.call('GET', uri.slice(1));
   const r = z.ok ? {ok: true, url: new URL(z.data.url, cfg.site).href} : {ok: false};
   if (r.ok) attCache.set(uri, {at: Date.now(), r});

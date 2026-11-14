@@ -1,6 +1,6 @@
 /** DOM builders for messages and agent rows. No state. */
-import {inlineHtml, extractAttachments} from './text.mjs?v=3b1104d891';
-import {parsed} from './model.mjs?v=3b1104d891';
+import {inlineHtml, extractAttachments} from './text.mjs?v=9b74db593c';
+import {parsed} from './model.mjs?v=9b74db593c';
 
 const el = (tag, className, html) => { const e = document.createElement(tag); if (className) e.className = className; if (html !== undefined) e.innerHTML = html; return e; };
 const textEl = (tag, className, text) => { const e = el(tag, className); e.textContent = text; return e; };
@@ -84,14 +84,20 @@ export function attachmentsEl(attachments, getUrl) {
         return;
       }
       const img = el('img'); img.alt = a.name; img.loading = 'lazy'; img.className = 'attimg';
-      const load = async () => { const r = await getUrl(a.uri); if (r.ok) img.src = r.url; else img.alt = a.name + ' (unavailable)'; };
+      let tries = 0;
+      const load = async () => {
+        const r = await getUrl(a.uri, tries > 0);   // a retry asks for a fresh signed link
+        if (r.ok) img.src = r.url; else { img.alt = a.name + ' (unavailable)'; if (++tries < 4) setTimeout(load, 2000 * tries); }
+        window.dispatchEvent(new CustomEvent('att-log', {detail: `${a.name}: ${r.ok ? 'link ok' : 'link failed'} (try ${tries + 1})`}));
+      };
+      img.onerror = () => { if (++tries < 4) setTimeout(load, 1500 * tries); else img.alt = a.name + ' (could not load)'; };   // expired or dropped: fetch again instead of leaving a blank
       new IntersectionObserver((entries, o) => { if (entries[0].isIntersecting) { o.disconnect(); load(); } }).observe(img);
       img.onclick = open;
       box.append(img);
     };
     let x0 = null;
     box.addEventListener('touchstart', e => { x0 = e.touches[0].clientX; }, {passive: true});
-    box.addEventListener('touchend', e => { if (x0 !== null && isImage && Math.abs(e.changedTouches[0].clientX - x0) > 50) { collapsed.add(a.uri); expanded.delete(a.uri); saveSet(collapsedKey, collapsed); saveSet(expandedKey, expanded); render(); } x0 = null; }, {passive: true});
+    box.addEventListener('touchend', e => { if (x0 !== null && isImage && Math.abs(e.changedTouches[0].clientX - x0) > 50) { collapsed.add(a.uri); expanded.delete(a.uri); render(); }   // this session only x0 = null; }, {passive: true});
     box.collapse = () => { collapsed.add(a.uri); expanded.delete(a.uri); render(); };
     render();
     wrap.append(box);
