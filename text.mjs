@@ -100,7 +100,15 @@ export function messageChunks(body) {
   const chunks = [];
   const blocks = parseBlocks(body);
   blocks.forEach((block, b) => {
-    if (block.kind === 'code' || block.kind === 'table') return;   // not read aloud
+    if (block.kind === 'code') return;   // not read aloud
+    if (block.kind === 'table') {   // "Table start.", then per row "Row N." and every cell as its own chunk (its own audio clip: long pauses between cells)
+      chunks.push({block: b, text: 'Table start.', r: -1, c: -1});
+      [block.head, ...block.rows].forEach((row, r) => {
+        chunks.push({block: b, text: `Row ${r + 1}.`, r, c: -1});
+        block.head.forEach((_, c) => { const text = (row[c] ?? '').trim(); if (text) chunks.push({block: b, text: /[.!?]$/.test(text) ? text : text + '.', r, c}); });
+      });
+      return;
+    }
     let group = '';
     const emit = () => { if (group) chunks.push({block: b, text: group}); group = ''; };
     for (const sentence of splitSentences(block.text)) {

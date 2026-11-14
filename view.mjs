@@ -1,6 +1,6 @@
 /** DOM builders for messages and agent rows. No state. */
-import {inlineHtml, extractAttachments} from './text.mjs?v=07d8398765';
-import {parsed} from './model.mjs?v=07d8398765';
+import {inlineHtml, extractAttachments} from './text.mjs?v=026827672a';
+import {parsed} from './model.mjs?v=026827672a';
 
 const el = (tag, className, html) => { const e = document.createElement(tag); if (className) e.className = className; if (html !== undefined) e.innerHTML = html; return e; };
 const textEl = (tag, className, text) => { const e = el(tag, className); e.textContent = text; return e; };
@@ -13,13 +13,22 @@ export function agentEl(message, getUrl) {
   if (p.title) root.append(textEl('div', 'title', p.title.replace(/^\[[^\]]*\]\s*/, '') || p.title));
   const body = el('div', 'body');
   p.blocks.forEach((block, b) => {
-    if (block.kind === 'table') {   // shown, not read aloud; scrolls sideways when wide
+    if (block.kind === 'table') {   // read aloud cell by cell; scrolls sideways when wide
       const wrap = el('div', 'table-wrap'), table = el('table'), thead = el('thead'), headRow = el('tr');
       for (const c of block.head) { const th = el('th'); th.innerHTML = inlineHtml(c); headRow.append(th); }
       thead.append(headRow); table.append(thead);
       const tbody = el('tbody');
       for (const row of block.rows) { const tr = el('tr'); block.head.forEach((_, i) => { const td = el('td'); td.innerHTML = inlineHtml(row[i] ?? ''); tr.append(td); }); tbody.append(tr); }
-      table.append(tbody); wrap.append(table); body.append(wrap); return;
+      table.append(tbody); wrap.append(table); body.append(wrap);
+      // each spoken chunk maps to a cell: "Table start" and "Row N" join the row's first cell, so the highlight and tap-to-seek follow the audio
+      const rows = [...table.querySelectorAll('tr')], span = new Map();
+      for (const chunk of p.chunks.filter(x => x.block === b && x.r !== undefined && x.idx >= 0)) {
+        const cell = rows[Math.max(0, chunk.r)].children[Math.max(0, chunk.c)];
+        let s = span.get(cell);
+        if (!s) { s = el('span', 's'); s.dataset.from = chunk.idx; s.append(...cell.childNodes); cell.append(s); span.set(cell, s); }
+        s.dataset.to = chunk.idx;
+      }
+      return;
     }
     if (block.kind === 'code') { const pre = el('pre'); pre.append(textEl('code', '', block.text)); body.append(pre); return; }
     const node = el(block.kind === 'h' ? 'h4' : 'p', block.kind === 'li' ? 'li' : '');
