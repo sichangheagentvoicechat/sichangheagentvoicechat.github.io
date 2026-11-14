@@ -1,6 +1,6 @@
 /** DOM builders for messages and agent rows. No state. */
-import {inlineHtml, extractAttachments} from './text.mjs?v=fd3aa70536';
-import {parsed} from './model.mjs?v=fd3aa70536';
+import {inlineHtml, extractAttachments} from './text.mjs?v=4ce7472ca3';
+import {parsed} from './model.mjs?v=4ce7472ca3';
 
 const el = (tag, className, html) => { const e = document.createElement(tag); if (className) e.className = className; if (html !== undefined) e.innerHTML = html; return e; };
 const textEl = (tag, className, text) => { const e = el(tag, className); e.textContent = text; return e; };
@@ -65,9 +65,11 @@ const saveSet = (key, set) => { try { localStorage.setItem(key, JSON.stringify([
 export const hideAllAttachments = {on: (() => { try { return localStorage.getItem('voice2-hide-att') === '1'; } catch { return false; } })()};
 
 /** Inline attachments: images as lazy thumbnails, other files as chips. Swipe sideways to collapse to a chip; tap a chip to expand. */
+const sessionCollapsed = new Set();   // images collapsed by a swipe: until the page reloads
 export function attachmentsEl(attachments, getUrl) {
   const wrap = el('div', 'atts');
-  const collapsed = readSet(collapsedKey), expanded = readSet(expandedKey);
+  try { localStorage.removeItem(collapsedKey); } catch { /* ignore */ }   // old builds saved sideways swipes forever: those previews stayed hidden after any reload
+  const collapsed = sessionCollapsed, expanded = readSet(expandedKey);
   for (const a of attachments) {
     const box = el('div', 'att');
     box.dataset.uri = a.uri;
@@ -95,9 +97,10 @@ export function attachmentsEl(attachments, getUrl) {
       img.onclick = open;
       box.append(img);
     };
-    let x0 = null;
-    box.addEventListener('touchstart', e => { x0 = e.touches[0].clientX; }, {passive: true});
-    box.addEventListener('touchend', e => { if (x0 !== null && isImage && Math.abs(e.changedTouches[0].clientX - x0) > 50) { collapsed.add(a.uri); expanded.delete(a.uri); render(); } x0 = null; }, {passive: true});   // swipe-collapse: this session only
+    let x0 = null, y0 = 0;
+    box.addEventListener('touchstart', e => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, {passive: true});
+    box.addEventListener('touchend', e => { const dx = x0 === null ? 0 : e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0; if (x0 !== null && isImage && Math.abs(dx) > 110 && Math.abs(dy) < 25) {   // a clearly horizontal swipe only: scrolling the feed over a picture must not hide it
+ collapsed.add(a.uri); expanded.delete(a.uri); render(); } x0 = null; }, {passive: true});   // swipe-collapse: this session only
     box.collapse = () => { collapsed.add(a.uri); expanded.delete(a.uri); render(); };
     render();
     wrap.append(box);
