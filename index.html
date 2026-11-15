@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="color-scheme" content="light dark">
 <title>Voice</title>
-<link rel="stylesheet" href="app.css?v=ee4894b7f6">
+<link rel="stylesheet" href="app.css?v=7a2adf9d09">
 </head>
 <body>
 <div id="app" hidden>
@@ -42,6 +42,7 @@
       <button type="button" id="cancel-rec" class="icon" aria-label="Discard recording" hidden><svg viewBox="0 0 24 24" class="i"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       <button type="button" id="next-unread" class="icon round" hidden aria-label="Next agent with unread messages"><span class="arrow">⇥</span><span id="next-unread-count"></span></button>
       <button type="button" id="prev-agent" class="icon round" hidden aria-label="Back to the previous agent"><span class="arrow">↩</span><span id="prev-agent-name"></span></button>
+      <button type="button" id="attach" class="icon round" aria-label="Attach a file or photo"><svg viewBox="0 0 24 24" class="i"><path d="M21 11l-8.5 8.5a5 5 0 01-7-7L14 4a3.5 3.5 0 015 5l-8.5 8.5a2 2 0 01-3-3L15 7"/></svg></button><input type="file" id="attach-input" multiple hidden>
       <button type="button" id="listen" class="icon round" data-state="off" aria-label="Voice control: off"><svg viewBox="0 0 24 24" class="i"><path d="M3 12h2M7 8v8M11 5v14M15 8v8M19 10v4"/></svg><span id="listen-label"></span></button>
       <button type="button" id="mic" class="icon round" aria-label="Dictate"><svg viewBox="0 0 24 24" class="i mic"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg><svg viewBox="0 0 24 24" class="i done"><path d="M5 13l4 4L19 7"/></svg></button>
       <button type="submit" id="send" class="icon round accent" aria-label="Send" disabled><svg viewBox="0 0 24 24" class="i"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
@@ -116,6 +117,6 @@
   <button class="wide accent">Connect</button>
 </form></dialog>
 
-<script type="module" src="app.mjs?v=ee4894b7f6"></script>
+<script type="module" src="app.mjs?v=7a2adf9d09"></script>
 </body>
 </html>

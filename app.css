@@ -183,3 +183,4 @@ html.picker-open, html.picker-open body { position: fixed; inset: 0; width: 100%
 .att .attcap { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 13px; color: var(--muted, inherit); opacity: .85; }
 .att .attname { flex: 1; min-width: 0; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
 .att .atthide { background: var(--panel); border: 0; border-radius: 12px; padding: 3px 10px; font-size: 12px; color: inherit; }
+#attach .i { stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }

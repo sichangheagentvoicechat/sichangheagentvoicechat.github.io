@@ -1,21 +1,21 @@
 /** Wires the model, Zulip events, voice service, player, voice control and DOM: feed, playback order, read state, switching, sending. Behavior is described in `design.md`. */
-import {createLog} from './log.mjs?v=ee4894b7f6';
-import {createLatency} from './latency.mjs?v=ee4894b7f6';
-import {createZulip, createEvents} from './zulip.mjs?v=ee4894b7f6';
-import {createVoice} from './voice.mjs?v=ee4894b7f6';
-import {createPlayer} from './player.mjs?v=ee4894b7f6';
-import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=ee4894b7f6';
-import {createModel, parsed, itemsOf} from './model.mjs?v=ee4894b7f6';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=ee4894b7f6';
-import {store} from './store.mjs?v=ee4894b7f6';
-import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=ee4894b7f6';
-import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=ee4894b7f6';
-import {createReads} from './reads.mjs?v=ee4894b7f6';
-import {createVoiceControl} from './voicecontrol.mjs?v=ee4894b7f6';
-import {createDictation} from './dictation.mjs?v=ee4894b7f6';
-import {rankTopics, similarText} from './grammar.mjs?v=ee4894b7f6';
+import {createLog} from './log.mjs?v=7a2adf9d09';
+import {createLatency} from './latency.mjs?v=7a2adf9d09';
+import {createZulip, createEvents} from './zulip.mjs?v=7a2adf9d09';
+import {createVoice} from './voice.mjs?v=7a2adf9d09';
+import {createPlayer} from './player.mjs?v=7a2adf9d09';
+import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=7a2adf9d09';
+import {createModel, parsed, itemsOf} from './model.mjs?v=7a2adf9d09';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=7a2adf9d09';
+import {store} from './store.mjs?v=7a2adf9d09';
+import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=7a2adf9d09';
+import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=7a2adf9d09';
+import {createReads} from './reads.mjs?v=7a2adf9d09';
+import {createVoiceControl} from './voicecontrol.mjs?v=7a2adf9d09';
+import {createDictation} from './dictation.mjs?v=7a2adf9d09';
+import {rankTopics, similarText} from './grammar.mjs?v=7a2adf9d09';
 
-const BUILD = 'v2.0-ee4894b7f6';
+const BUILD = 'v2.0-7a2adf9d09';
 const log = createLog();
 const lat = createLatency(log);
 addEventListener('error', e => log('err', `${e.message} @${e.filename?.split('/').pop()}:${e.lineno}`));
@@ -60,7 +60,14 @@ const ing = m => m.stream_id === cfg.streamId || m.t0 !== undefined ? m : {...m,
 const streamOf = key => keyInfo.get(key)?.streamId ?? cfg.streamId, topicOf = key => keyInfo.get(key)?.topic ?? key;
 
 const cache = store.get('voice2-cache', null);
-if (cache) { for (const list of Object.values(cache.msgs ?? {})) for (const m of list) if (m.t0 !== undefined) keyInfo.set(m.subject, {streamId: m.stream_id, topic: m.t0}); model.restore(cache); current ??= cache.current; }
+if (cache) {   // an older build cached channel-topic messages twice (also without their "channel · topic" key): drop the unkeyed copies and the rows they made
+  const keyed = new Set();
+  for (const list of Object.values(cache.msgs ?? {})) for (const m of list) if (m.t0 !== undefined) keyed.add(m.id);
+  for (const [name, list] of Object.entries(cache.msgs ?? {})) {
+    cache.msgs[name] = list.filter(m => m.t0 !== undefined || !keyed.has(m.id));
+    if (!cache.msgs[name].length) { delete cache.msgs[name]; cache.topics = (cache.topics ?? []).filter(t => t.name !== name); }
+  }
+  for (const list of Object.values(cache.msgs ?? {})) for (const m of list) if (m.t0 !== undefined) keyInfo.set(m.subject, {streamId: m.stream_id, topic: m.t0}); model.restore(cache); current ??= cache.current; }
 
 const player = createPlayer({
   log, voice,
@@ -209,7 +216,7 @@ async function loadEarlier() {
 /** Latest messages of the whole channel, so the agent list can show a snippet per agent. */
 async function loadRecent() {
   const r = await zulip.call('GET', 'messages', {narrow: [{operator: 'stream', operand: cfg.streamId}], anchor: 'newest', num_before: 800, num_after: 0, apply_markdown: false});   // one call buckets every topic, so a switch never waits for the network
-  if (r.ok) for (const m of r.data.messages) model.add(m);
+  if (r.ok) for (const m of r.data.messages) model.add(ing(m));
   for (const id of includedChannels()) {   // one call per extra channel buckets all its topics
     if (!channelNames.has(id)) continue;
     const x = await zulip.call('GET', 'messages', {narrow: [{operator: 'stream', operand: id}], anchor: 'newest', num_before: 300, num_after: 0, apply_markdown: false});
@@ -604,7 +611,7 @@ async function loadTopicUntilLoaded(topic) {
   for (let attempt = 0; current === topic; attempt++) {
     const r = await zulip.call('GET', 'messages', {narrow: topicQuery(topic), anchor: 'newest', num_before: 40, num_after: 0, apply_markdown: false});
     if (r.ok) {
-      for (const m of r.data.messages) model.add(m);
+      for (const m of r.data.messages) model.add(ing(m));   // channel topics are keyed "channel · topic": adding the raw message made a second, unkeyed row
       model.markLoaded(topic);
       if (current !== topic) return;
       hasEarlier = !r.data.found_oldest && r.data.messages.length >= 40;
@@ -644,6 +651,25 @@ function openPicker() {
   }
   if (!$('picker').open) { $('picker').showModal(); fitPicker(); $('search').focus(); }
 }
+
+// ---- attachments: upload to Zulip, then the link goes into the draft like any message text ----
+$('attach').onclick = () => $('attach-input').click();
+$('attach-input').onchange = async e => {
+  const files = [...e.target.files]; e.target.value = '';
+  if (!files.length) return;
+  toast(`Uploading ${files.length} file${files.length > 1 ? 's' : ''}…`);
+  const links = [];
+  for (const file of files) {
+    const form = new FormData(); form.append('file', file, file.name || `photo-${Date.now()}`);
+    const up = await zulip.call('POST', 'user_uploads', form, {timeoutMs: 120000});
+    log('att', `upload ${file.name} ${file.size}B: ${up.ok ? 'ok' : up.error}`);
+    if (up.ok) links.push(`[${(file.name || 'file').replace(/[\[\]]/g, '')}](${up.data.uri})`);
+    else { cue('error'); toast(`Upload failed: ${file.name} (${up.error})`); }
+  }
+  if (!links.length) return;
+  draftEl.value = [draftEl.value.trimEnd(), ...links].filter(Boolean).join('\n'); autosize(); saveDraft();
+  toast(links.length > 1 ? 'Files attached: tap send' : 'File attached: tap send');
+};
 
 // ---- composer: typing and sending ----
 const draftEl = $('draft');
