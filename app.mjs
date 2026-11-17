@@ -1,21 +1,21 @@
 /** Wires the model, Zulip events, voice service, player, voice control and DOM: feed, playback order, read state, switching, sending. Behavior is described in `design.md`. */
-import {createLog} from './log.mjs?v=641c925d8b';
-import {createLatency} from './latency.mjs?v=641c925d8b';
-import {createZulip, createEvents} from './zulip.mjs?v=641c925d8b';
-import {createVoice} from './voice.mjs?v=641c925d8b';
-import {createPlayer} from './player.mjs?v=641c925d8b';
-import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=641c925d8b';
-import {createModel, parsed, itemsOf} from './model.mjs?v=641c925d8b';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=641c925d8b';
-import {store} from './store.mjs?v=641c925d8b';
-import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=641c925d8b';
-import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=641c925d8b';
-import {createReads} from './reads.mjs?v=641c925d8b';
-import {createVoiceControl} from './voicecontrol.mjs?v=641c925d8b';
-import {createDictation} from './dictation.mjs?v=641c925d8b';
-import {rankTopics, similarText} from './grammar.mjs?v=641c925d8b';
+import {createLog} from './log.mjs?v=a1fc90b6bf';
+import {createLatency} from './latency.mjs?v=a1fc90b6bf';
+import {createZulip, createEvents} from './zulip.mjs?v=a1fc90b6bf';
+import {createVoice} from './voice.mjs?v=a1fc90b6bf';
+import {createPlayer} from './player.mjs?v=a1fc90b6bf';
+import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=a1fc90b6bf';
+import {createModel, parsed, itemsOf} from './model.mjs?v=a1fc90b6bf';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=a1fc90b6bf';
+import {store} from './store.mjs?v=a1fc90b6bf';
+import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=a1fc90b6bf';
+import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=a1fc90b6bf';
+import {createReads} from './reads.mjs?v=a1fc90b6bf';
+import {createVoiceControl} from './voicecontrol.mjs?v=a1fc90b6bf';
+import {createDictation} from './dictation.mjs?v=a1fc90b6bf';
+import {rankTopics, similarText} from './grammar.mjs?v=a1fc90b6bf';
 
-const BUILD = 'v2.0-641c925d8b';
+const BUILD = 'v2.0-a1fc90b6bf';
 const log = createLog();
 const lat = createLatency(log);
 addEventListener('error', e => log('err', `${e.message} @${e.filename?.split('/').pop()}:${e.lineno}`));
@@ -567,7 +567,11 @@ function renderPrevButton() {
 function switchNextUnread() {
   const order = rank('').map(x => x.t), at = order.findIndex(t => t.name === current);
   const next = [...order.slice(at + 1), ...order.slice(0, Math.max(0, at))].find(t => t.name !== current && t.unread > 0);
-  if (!next) { toast('No other agent has unread messages'); return false; }
+  if (!next) {   // nothing unread anywhere: still move on, to the next agent in the list order, and say so
+    const plain = [...order.slice(at + 1), ...order.slice(0, Math.max(0, at))].find(t => t.name !== current);
+    if (!plain) { toast('No other agent'); return false; }
+    toast('No unread messages elsewhere: next agent in the list'); switchTopic(plain.name); return true;
+  }
   switchTopic(next.name);
   return true;
 }
