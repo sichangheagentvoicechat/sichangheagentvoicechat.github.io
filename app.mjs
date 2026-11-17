@@ -1,21 +1,21 @@
 /** Wires the model, Zulip events, voice service, player, voice control and DOM: feed, playback order, read state, switching, sending. Behavior is described in `design.md`. */
-import {createLog} from './log.mjs?v=b8e1433c2d';
-import {createLatency} from './latency.mjs?v=b8e1433c2d';
-import {createZulip, createEvents} from './zulip.mjs?v=b8e1433c2d';
-import {createVoice} from './voice.mjs?v=b8e1433c2d';
-import {createPlayer} from './player.mjs?v=b8e1433c2d';
-import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=b8e1433c2d';
-import {createModel, parsed, itemsOf} from './model.mjs?v=b8e1433c2d';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=b8e1433c2d';
-import {store} from './store.mjs?v=b8e1433c2d';
-import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=b8e1433c2d';
-import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=b8e1433c2d';
-import {createReads} from './reads.mjs?v=b8e1433c2d';
-import {createVoiceControl} from './voicecontrol.mjs?v=b8e1433c2d';
-import {createDictation} from './dictation.mjs?v=b8e1433c2d';
-import {rankTopics, similarText} from './grammar.mjs?v=b8e1433c2d';
+import {createLog} from './log.mjs?v=4e1ab4cac8';
+import {createLatency} from './latency.mjs?v=4e1ab4cac8';
+import {createZulip, createEvents} from './zulip.mjs?v=4e1ab4cac8';
+import {createVoice} from './voice.mjs?v=4e1ab4cac8';
+import {createPlayer} from './player.mjs?v=4e1ab4cac8';
+import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=4e1ab4cac8';
+import {createModel, parsed, itemsOf} from './model.mjs?v=4e1ab4cac8';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=4e1ab4cac8';
+import {store} from './store.mjs?v=4e1ab4cac8';
+import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=4e1ab4cac8';
+import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=4e1ab4cac8';
+import {createReads} from './reads.mjs?v=4e1ab4cac8';
+import {createVoiceControl} from './voicecontrol.mjs?v=4e1ab4cac8';
+import {createDictation} from './dictation.mjs?v=4e1ab4cac8';
+import {rankTopics, similarText} from './grammar.mjs?v=4e1ab4cac8';
 
-const BUILD = 'v2.0-b8e1433c2d';
+const BUILD = 'v2.0-4e1ab4cac8';
 const log = createLog();
 const lat = createLatency(log);
 addEventListener('error', e => log('err', `${e.message} @${e.filename?.split('/').pop()}:${e.lineno}`));
@@ -976,8 +976,8 @@ async function syncWakeLock() {
   catch (error) { log('wake', `not granted: ${error.name}`); }
 }
 setInterval(syncWakeLock, 2000);
-setTimeout(checkVoice, 4000);   // first priorities, then every 5 min while the page is visible (one relay round trip)
-setInterval(() => { if (document.visibilityState === 'visible' && (voice.pendingCount?.() ?? 0) === 0) checkVoice(); }, 300000);
+setTimeout(checkVoice, 4000);   // first priorities, then every minute while the page is visible (one relay round trip): an urgent task drops back to its place once the human has read its message
+setInterval(() => { if (document.visibilityState === 'visible' && (voice.pendingCount?.() ?? 0) === 0) checkVoice(); }, 60000);
 document.addEventListener('visibilitychange', syncWakeLock);
 
 // ---- desktop keyboard shortcuts (ignored while typing; Esc leaves the text box) ----
