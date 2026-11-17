@@ -1,21 +1,21 @@
 /** Wires the model, Zulip events, voice service, player, voice control and DOM: feed, playback order, read state, switching, sending. Behavior is described in `design.md`. */
-import {createLog} from './log.mjs?v=2c3d7e4dbd';
-import {createLatency} from './latency.mjs?v=2c3d7e4dbd';
-import {createZulip, createEvents} from './zulip.mjs?v=2c3d7e4dbd';
-import {createVoice} from './voice.mjs?v=2c3d7e4dbd';
-import {createPlayer} from './player.mjs?v=2c3d7e4dbd';
-import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=2c3d7e4dbd';
-import {createModel, parsed, itemsOf} from './model.mjs?v=2c3d7e4dbd';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=2c3d7e4dbd';
-import {store} from './store.mjs?v=2c3d7e4dbd';
-import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=2c3d7e4dbd';
-import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=2c3d7e4dbd';
-import {createReads} from './reads.mjs?v=2c3d7e4dbd';
-import {createVoiceControl} from './voicecontrol.mjs?v=2c3d7e4dbd';
-import {createDictation} from './dictation.mjs?v=2c3d7e4dbd';
-import {rankTopics, similarText} from './grammar.mjs?v=2c3d7e4dbd';
+import {createLog} from './log.mjs?v=641c925d8b';
+import {createLatency} from './latency.mjs?v=641c925d8b';
+import {createZulip, createEvents} from './zulip.mjs?v=641c925d8b';
+import {createVoice} from './voice.mjs?v=641c925d8b';
+import {createPlayer} from './player.mjs?v=641c925d8b';
+import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=641c925d8b';
+import {createModel, parsed, itemsOf} from './model.mjs?v=641c925d8b';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=641c925d8b';
+import {store} from './store.mjs?v=641c925d8b';
+import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=641c925d8b';
+import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=641c925d8b';
+import {createReads} from './reads.mjs?v=641c925d8b';
+import {createVoiceControl} from './voicecontrol.mjs?v=641c925d8b';
+import {createDictation} from './dictation.mjs?v=641c925d8b';
+import {rankTopics, similarText} from './grammar.mjs?v=641c925d8b';
 
-const BUILD = 'v2.0-2c3d7e4dbd';
+const BUILD = 'v2.0-641c925d8b';
 const log = createLog();
 const lat = createLatency(log);
 addEventListener('error', e => log('err', `${e.message} @${e.filename?.split('/').pop()}:${e.lineno}`));
@@ -1011,6 +1011,20 @@ addEventListener('keydown', e => {
   player.unlock();
   action();
 });
+
+// ---- update notice: a page never updates itself; tell the user when a newer build is published ----
+let updateShown = false;
+async function checkForUpdate() {
+  const mine = BUILD.replace(/^v2\.0-?/, '');
+  if (!mine || updateShown) return;   // unbuilt page: nothing to compare
+  try {
+    const r = await fetch('version.txt?t=' + Date.now(), {cache: 'no-store'});
+    const latest = r.ok ? (await r.text()).trim() : '';
+    if (/^[0-9a-f]{10}$/.test(latest) && latest !== mine) { updateShown = true; log('app', `update available: ${mine} -> ${latest}`); showBanner('New version available. Tap to reload.', 'tap', () => location.reload()); }
+  } catch { /* offline: try again later */ }
+}
+setTimeout(checkForUpdate, 8000); setInterval(checkForUpdate, 300000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
 
 // ---- start ----
 renderRate(); renderAuto(); renderPrevButton(); $('prev-agent').onclick = switchBack; $('next-unread').onclick = switchNextUnread;

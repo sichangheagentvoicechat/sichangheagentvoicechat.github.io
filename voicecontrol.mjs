@@ -3,13 +3,13 @@
  * end word sends, cancel word discards. Owns the microphone (recorder), the on-device keyword spotter and the switch question.
  * Everything it does to playback, the feed or the composer goes through `ctx`.
  */
-import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=2c3d7e4dbd';
-import {createKeywordSpotter} from './kws.mjs?v=2c3d7e4dbd';
-import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=2c3d7e4dbd';
-import {itemsOf} from './model.mjs?v=2c3d7e4dbd';
-import {$, toast} from './chrome.mjs?v=2c3d7e4dbd';
+import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=641c925d8b';
+import {createKeywordSpotter} from './kws.mjs?v=641c925d8b';
+import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=641c925d8b';
+import {itemsOf} from './model.mjs?v=641c925d8b';
+import {$, toast} from './chrome.mjs?v=641c925d8b';
 import {normalize, rankTopics, clearWinner, commandPhrases, afterStartWord as afterStart, stripResumePhrase as stripResume, isCommandWord as isCmd, isCancel, hasCancelWord as hasCancel, endsWithCancel as endsCancel,
-  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, SEND_LOG_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=2c3d7e4dbd';
+  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, SEND_LOG_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=641c925d8b';
 
 const RESUME_SILENCE_MS = 1000;   // plus the recorder's 0.7 s end-of-utterance silence: about 1.7 s of quiet after the phrase
 const FOLLOW_UP_GRACE_MS = 6000;
@@ -457,6 +457,7 @@ export function createVoiceControl(ctx) {
   const textSetting = (id, key, fallback, clean) => { $(id).value = store.get(key, fallback); $(id).onchange = e => store.set(key, clean(e.target.value.trim()) || fallback); };
   textSetting('set-phrase', 'voice2-resume-phrase', RESUME_DEFAULT, v => v);
   textSetting('set-start', 'voice2-start-word', START_DEFAULT, v => v.toLowerCase());
+  textSetting('set-cancel', 'voice2-cancel-word', CANCEL_WORD_DEFAULT, v => v.toLowerCase());
   textSetting('set-cmd', 'voice2-cmd-word', CMD_DEFAULT, v => v.toLowerCase());
   $('set-silence').value = store.get('voice2-long-silence-s', LONG_SILENCE_DEFAULT_S);
   $('set-silence').onchange = e => store.set('voice2-long-silence-s', Math.max(0, Number(e.target.value) || 0));
