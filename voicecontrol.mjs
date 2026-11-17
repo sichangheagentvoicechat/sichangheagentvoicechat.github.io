@@ -3,13 +3,13 @@
  * end word sends, cancel word discards. Owns the microphone (recorder), the on-device keyword spotter and the switch question.
  * Everything it does to playback, the feed or the composer goes through `ctx`.
  */
-import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=a1fc90b6bf';
-import {createKeywordSpotter} from './kws.mjs?v=a1fc90b6bf';
-import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=a1fc90b6bf';
-import {itemsOf} from './model.mjs?v=a1fc90b6bf';
-import {$, toast} from './chrome.mjs?v=a1fc90b6bf';
+import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=aaa19236c6';
+import {createKeywordSpotter} from './kws.mjs?v=aaa19236c6';
+import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=aaa19236c6';
+import {itemsOf} from './model.mjs?v=aaa19236c6';
+import {$, toast} from './chrome.mjs?v=aaa19236c6';
 import {normalize, rankTopics, clearWinner, commandPhrases, afterStartWord as afterStart, stripResumePhrase as stripResume, isCommandWord as isCmd, isCancel, hasCancelWord as hasCancel, endsWithCancel as endsCancel,
-  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, SEND_LOG_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=a1fc90b6bf';
+  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, SEND_LOG_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=aaa19236c6';
 
 const RESUME_SILENCE_MS = 1000;   // plus the recorder's 0.7 s end-of-utterance silence: about 1.7 s of quiet after the phrase
 const FOLLOW_UP_GRACE_MS = 6000;
@@ -177,7 +177,9 @@ export function createVoiceControl(ctx) {
     const r = await voice.stt(blob, vc && vc.mode !== 'command' && (meta.speechMs ?? 0) >= 1500 ? DOMAIN_PROMPT : undefined, !listening);
     if (!r.ok) {   // a transient failure is silent: inside a reply the clip stays as audio and goes out with the reply; the user is told what to do only once
       log('vc', `stt failed: ${r.error}`);
-      if (vc && !vc.toldOffline) { vc.toldOffline = true; sayAndMute("Connection lost. Keep talking; I'll send when it's back."); }
+      if (vc?.mode === 'command') {   // 🧑 command mode with no connection gave zero feedback: say what still works (the on-device words), at most every 6 s
+        if (Date.now() - (vc.toldCommandOffline ?? 0) > 6000) { vc.toldCommandOffline = Date.now(); recorder.beep('empty'); toast('No connection: command not heard. Only on-device commands work.'); sayAndMute("No connection. I can't hear that command. Say cancel, stop, or switch to."); }
+      } else if (vc && !vc.toldOffline) { vc.toldOffline = true; sayAndMute("Connection lost. Keep talking; I'll send when it's back."); }
       if (vc) armSessionTimer();
       resumeBarge(); vcIdle(); return;
     }
