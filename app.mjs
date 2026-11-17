@@ -1,21 +1,21 @@
 /** Wires the model, Zulip events, voice service, player, voice control and DOM: feed, playback order, read state, switching, sending. Behavior is described in `design.md`. */
-import {createLog} from './log.mjs?v=aaa19236c6';
-import {createLatency} from './latency.mjs?v=aaa19236c6';
-import {createZulip, createEvents} from './zulip.mjs?v=aaa19236c6';
-import {createVoice} from './voice.mjs?v=aaa19236c6';
-import {createPlayer} from './player.mjs?v=aaa19236c6';
-import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=aaa19236c6';
-import {createModel, parsed, itemsOf} from './model.mjs?v=aaa19236c6';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=aaa19236c6';
-import {store} from './store.mjs?v=aaa19236c6';
-import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=aaa19236c6';
-import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=aaa19236c6';
-import {createReads} from './reads.mjs?v=aaa19236c6';
-import {createVoiceControl} from './voicecontrol.mjs?v=aaa19236c6';
-import {createDictation} from './dictation.mjs?v=aaa19236c6';
-import {rankTopics, similarText} from './grammar.mjs?v=aaa19236c6';
+import {createLog} from './log.mjs?v=b8e1433c2d';
+import {createLatency} from './latency.mjs?v=b8e1433c2d';
+import {createZulip, createEvents} from './zulip.mjs?v=b8e1433c2d';
+import {createVoice} from './voice.mjs?v=b8e1433c2d';
+import {createPlayer} from './player.mjs?v=b8e1433c2d';
+import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=b8e1433c2d';
+import {createModel, parsed, itemsOf} from './model.mjs?v=b8e1433c2d';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=b8e1433c2d';
+import {store} from './store.mjs?v=b8e1433c2d';
+import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=b8e1433c2d';
+import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=b8e1433c2d';
+import {createReads} from './reads.mjs?v=b8e1433c2d';
+import {createVoiceControl} from './voicecontrol.mjs?v=b8e1433c2d';
+import {createDictation} from './dictation.mjs?v=b8e1433c2d';
+import {rankTopics, similarText} from './grammar.mjs?v=b8e1433c2d';
 
-const BUILD = 'v2.0-aaa19236c6';
+const BUILD = 'v2.0-b8e1433c2d';
 const log = createLog();
 const lat = createLatency(log);
 addEventListener('error', e => log('err', `${e.message} @${e.filename?.split('/').pop()}:${e.lineno}`));
@@ -416,6 +416,7 @@ const pastWatermark = it => after(it, watermark());
 /** What was paused (by a voice session or otherwise) and is not finished: resumes it mid-chunk, else falls back to autoplay. */
 let pausedItem = null;
 function resumeAfterPause() {
+  { const wait = vctl.soundLeftMs?.() ?? 0; if (wait > 0 && wait < 3000) { clearTimeout(resumeAfterPause.t); resumeAfterPause.t = setTimeout(resumeAfterPause, wait + 60); return; } }   // let a chime finish first
   player.unlock(); setFollow(true); if (nowMsgId !== null) scrollToNow();
   const st = player.position().status;
   if (st === 'paused') { player.resume(); return; }
@@ -430,6 +431,7 @@ function resumeAfterPause() {
 }
 
 function maybeAutoplay() {
+  { const wait = vctl.soundLeftMs?.() ?? 0; if (wait > 0 && wait < 3000) { clearTimeout(maybeAutoplay.t); maybeAutoplay.t = setTimeout(maybeAutoplay, wait + 60); return; } }   // a chime (e.g. cancel) is still playing: reading starts after it, never over it
   if (replacementWait) return;
   if (!autoplay || !current || vctl.userSpeaking() || player.position().status !== 'idle') return;   // never start speech while the user speaks
   // Forward only: anything older than the newest read message counts as read and is never played again.

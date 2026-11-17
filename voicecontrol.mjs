@@ -3,18 +3,19 @@
  * end word sends, cancel word discards. Owns the microphone (recorder), the on-device keyword spotter and the switch question.
  * Everything it does to playback, the feed or the composer goes through `ctx`.
  */
-import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=aaa19236c6';
-import {createKeywordSpotter} from './kws.mjs?v=aaa19236c6';
-import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=aaa19236c6';
-import {itemsOf} from './model.mjs?v=aaa19236c6';
-import {$, toast} from './chrome.mjs?v=aaa19236c6';
+import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=b8e1433c2d';
+import {createKeywordSpotter} from './kws.mjs?v=b8e1433c2d';
+import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=b8e1433c2d';
+import {itemsOf} from './model.mjs?v=b8e1433c2d';
+import {$, toast} from './chrome.mjs?v=b8e1433c2d';
 import {normalize, rankTopics, clearWinner, commandPhrases, afterStartWord as afterStart, stripResumePhrase as stripResume, isCommandWord as isCmd, isCancel, hasCancelWord as hasCancel, endsWithCancel as endsCancel,
-  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, SEND_LOG_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=aaa19236c6';
+  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, SEND_LOG_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=b8e1433c2d';
 
 const RESUME_SILENCE_MS = 1000;   // plus the recorder's 0.7 s end-of-utterance silence: about 1.7 s of quiet after the phrase
 const FOLLOW_UP_GRACE_MS = 6000;
 const EMPTY_SESSION_MS = 8000;
 const COMMAND_SILENCE_MS = 8000;
+const EARCON_GAIN = {cancel: 0.85, command: 0.75, empty: 0.7};   // the quiet ones were the ones the human could not hear
 const CHOICE_MS = 20000;
 const START_MIN_SPEECH_MS = 250, START_MAX_NO_SPEECH = 0.6, START_MIN_LOGPROB = -1.0;
 const UPLOADS_PER_MIN = 8, EMPTY_RUN_BACKOFF = 3, BACKOFF_MS = 60000;
@@ -71,7 +72,7 @@ export function createVoiceControl(ctx) {
     log, onClip: ctx.onClip, onLevel: ctx.onLevel, onBarge, onCommandClip,
     onSpeechOnset: () => { if (!kwsSpotter.ready()) return; for (const w of kwsSpotter.restart(0.6)) onKwsHit(w); if (vc?.mode === 'command' || choiceOpen()) for (const tag of kwsSpotter.restartCommands(0.6)) onCommandHit(tag); },
     onKwsAudio: samples => { for (const w of kwsSpotter.feed(samples)) onKwsHit(w); if (vc?.mode === 'command' || choiceOpen()) for (const tag of kwsSpotter.feedCommands(samples)) onCommandHit(tag); },
-    onEarcon: kind => { player.earcon(EARCON_NOTES[kind], EARCON_NOTE_S); if (lastHitAt && Date.now() - lastHitAt < 1500) log('lat', `local hit -> ${kind} sound started in ${Date.now() - lastHitAt}ms`); },
+    onEarcon: kind => { player.earcon(EARCON_NOTES[kind], EARCON_NOTE_S, EARCON_GAIN[kind] ?? 0.45); try { navigator.vibrate?.(kind === 'cancel' ? [60, 40, 60] : 0); } catch { /* unsupported (iOS) */ } if (lastHitAt && Date.now() - lastHitAt < 1500) log('lat', `local hit -> ${kind} sound started in ${Date.now() - lastHitAt}ms`); },
   });
 
   /** Our own spoken prompt: the microphone ignores speech while it plays; a keyword still interrupts it. */
@@ -476,6 +477,7 @@ export function createVoiceControl(ctx) {
     start() { if (voiceControl) { $('set-voice').checked = true; setVcState('waiting', 'tap'); setVoiceControl(true); } },
     onGesture() { if (voiceControl && !recorder.active() && !voiceListening) setVoiceControl(true); },
     /** The draft was sent by hand: a later timer must not send it again. */
+    soundLeftMs: () => recorder.earconLeftMs(),
     closeForManualSend() { if (vc) { clearTimeout(vc.timer); clearTimeout(vc.emptyTimer); vc = null; recorder.setReplyMode(false); log('vc', 'draft sent by hand: voice session closed'); } },
     debugLine: () => `on-device start word: setting ${kwsEnabled() ? 'on' : 'OFF'}, ${kwsSpotter.state().status}${kwsSpotter.state().detail ? ' (' + kwsSpotter.state().detail + ')' : ''}`,
   };
