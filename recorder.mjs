@@ -220,6 +220,8 @@ export function createRecorder({log, onClip, onLevel, onBarge, onCommandClip, on
     setReplyMode(on) { replyMode = on; },
     /** Noisy-room mode: higher level and longer duration needed to start a start-word clip. */
     setBackoff(on) { backoff = on; },
+    /** True while an utterance is being recorded (speech since the last clip cut): the user is talking right now. */
+    inUtterance: () => frames.length > 0,
     active: () => capturing,
     /** True while the microphone stream is open (dictation or voice control). */
     micOpen: () => !!ctx,

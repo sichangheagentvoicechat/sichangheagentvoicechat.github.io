@@ -3,13 +3,13 @@
  * end word sends, cancel word discards. Owns the microphone (recorder), the on-device keyword spotter and the switch question.
  * Everything it does to playback, the feed or the composer goes through `ctx`.
  */
-import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=c56698cd86';
-import {createKeywordSpotter} from './kws.mjs?v=c56698cd86';
-import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=c56698cd86';
-import {itemsOf} from './model.mjs?v=c56698cd86';
-import {$, toast} from './chrome.mjs?v=c56698cd86';
+import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=2c3d7e4dbd';
+import {createKeywordSpotter} from './kws.mjs?v=2c3d7e4dbd';
+import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=2c3d7e4dbd';
+import {itemsOf} from './model.mjs?v=2c3d7e4dbd';
+import {$, toast} from './chrome.mjs?v=2c3d7e4dbd';
 import {normalize, rankTopics, clearWinner, commandPhrases, afterStartWord as afterStart, stripResumePhrase as stripResume, isCommandWord as isCmd, isCancel, hasCancelWord as hasCancel, endsWithCancel as endsCancel,
-  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, SEND_LOG_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=c56698cd86';
+  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, SEND_LOG_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=2c3d7e4dbd';
 
 const RESUME_SILENCE_MS = 1000;   // plus the recorder's 0.7 s end-of-utterance silence: about 1.7 s of quiet after the phrase
 const FOLLOW_UP_GRACE_MS = 6000;
@@ -153,7 +153,7 @@ export function createVoiceControl(ctx) {
   async function onCommandClip(blob, meta = {}) {
     if (ctx.dictating()) return;
     if (vc) { meta.part = {blob, text: vc.mode === 'command' ? '' : null, fromCommand: vc.mode === 'command'}; (vc.parts ??= []).push(meta.part); }   // kept so a spotted end word can send the audio itself; speech in command mode is never reply text
-    try { await handleCommandClip(blob, meta); } finally { utterancePending = false; clearTimeout(utteranceTimer); if (!userSpeaking()) ctx.maybeAutoplay(); }
+    try { await handleCommandClip(blob, meta); } finally { if (vc && !vc.ending && !vc.timer && !vc.emptyTimer && !recorder.inUtterance()) armSessionTimer(); utterancePending = false; clearTimeout(utteranceTimer); if (!userSpeaking()) ctx.maybeAutoplay(); }
   }
   /** Every start-word clip costs a Zulip upload plus messages: cap them, and back off in a noisy room instead of exhausting the rate limit. */
   function noteStartResult(useful) {
@@ -373,6 +373,7 @@ export function createVoiceControl(ctx) {
   function armSessionTimer() {
     if (!vc || vc.ending) return;
     clearTimeout(vc.timer); clearTimeout(vc.emptyTimer);
+    if (recorder.inUtterance()) return;   // still talking: the clip being recorded will arm the timer when its transcript arrives
     const silenceMs = stripResumePhrase(vc.text) !== null ? RESUME_SILENCE_MS : Number(store.get('voice2-long-silence-s', LONG_SILENCE_DEFAULT_S)) * 1000;
     if (vc.text.trim() && silenceMs > 0) vc.timer = setTimeout(finishVcReply, silenceMs);
     else if (!vc.text.trim()) vc.emptyTimer = setTimeout(closeEmptySession, EMPTY_SESSION_MS);
@@ -414,7 +415,8 @@ export function createVoiceControl(ctx) {
   }
   /** End word plus silence (or the long silence): drop the end word, send the reply if there is one, then resume reading. */
   function finishVcReply() {
-    if (!vc || vc.ending) return;   // a timer re-armed while a send was waiting for clips must not fire on a closed session
+    if (!vc || vc.ending) return;
+    if (recorder.inUtterance()) { clearTimeout(vc.timer); vc.timer = setTimeout(finishVcReply, 1500); log('vc', 'end timer fired while you were still speaking: waiting'); return; }   // 🧑 "A buggy early stop, although I did not say the terminal word": the timer armed by an earlier transcript fired in the middle of a long clip   // a timer re-armed while a send was waiting for clips must not fire on a closed session
     if (untranscribed()) { sendVoiceReplyNow('clips still untranscribed'); return; }
     const reply = vc, asm = assembleReply([stripResumePhrase(reply.text) ?? reply.text], {cancelWord: cancelWord(), commandWord: commandWord()}), stripped = asm.text;   // same rules as the relay: a cancel word discards it all, command speech and keywords are never text
     if (asm.discard || !stripped) log('vc', `reply not sent (${asm.why ?? 'only control words'}): "${reply.text}"`);
