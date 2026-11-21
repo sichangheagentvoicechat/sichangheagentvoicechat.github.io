@@ -3,13 +3,13 @@
  * end word sends, cancel word discards. Owns the microphone (recorder), the on-device keyword spotter and the switch question.
  * Everything it does to playback, the feed or the composer goes through `ctx`.
  */
-import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=d3fcc36602';
-import {createKeywordSpotter} from './kws.mjs?v=d3fcc36602';
-import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=d3fcc36602';
-import {itemsOf} from './model.mjs?v=d3fcc36602';
-import {$, toast} from './chrome.mjs?v=d3fcc36602';
+import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=8735304baa';
+import {createKeywordSpotter} from './kws.mjs?v=8735304baa';
+import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=8735304baa';
+import {itemsOf} from './model.mjs?v=8735304baa';
+import {$, toast} from './chrome.mjs?v=8735304baa';
 import {normalize, rankTopics, clearWinner, commandPhrases, afterStartWord as afterStart, stripResumePhrase as stripResume, isCommandWord as isCmd, isCancel, hasCancelWord as hasCancel, endsWithCancel as endsCancel,
-  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, SEND_LOG_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=d3fcc36602';
+  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, SEND_LOG_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=8735304baa';
 
 const RESUME_SILENCE_MS = 1000;   // plus the recorder's 0.7 s end-of-utterance silence: about 1.7 s of quiet after the phrase
 const FOLLOW_UP_GRACE_MS = 6000;
@@ -115,6 +115,13 @@ export function createVoiceControl(ctx) {
       else { recorder.beep('cancel'); vcIdle(); ctx.maybeAutoplay(); }
       return;
     }
+    const num = {NUMBER_ONE: 0, NUMBER_TWO: 1, NUMBER_THREE: 2}[tag];
+    if (num !== undefined) {   // 🧑 "say number one as soon as that is the correct agent": answered on-device, even mid-list
+      if (!choiceOpen() || pendingChoice.confirm || !pendingChoice.names[num]) return;
+      lastLocalCommandMs = Date.now(); lat.stage('switch', 'answer-heard');
+      const name = pendingChoice.names[num]; pendingChoice = null;
+      closeSessionForChoice(); ctx.switchTopic(name, true); vcIdle(); return;
+    }
     if (!inCommand) return;
     if (tag === 'SKIP_FORWARD' || tag === 'SKIP_BACKWARD') {   // runs once now; a spoken count ("skip forward three") is added when the transcript arrives
       lastLocalNav = {dir: tag === 'SKIP_FORWARD' ? 1 : -1, ms: Date.now()};
@@ -175,7 +182,14 @@ export function createVoiceControl(ctx) {
     }
     const listening = !!vc || choiceOpen();
     // Domain words bias reply dictation only; never a prompt that names the control words: the model echoes it back on noise. Start-word clips also get keyword spotting on the server.
-    const r = await voice.stt(blob, vc && vc.mode !== 'command' && (meta.speechMs ?? 0) >= 1500 ? DOMAIN_PROMPT : undefined, !listening);
+    let r = await voice.stt(blob, vc && vc.mode !== 'command' && (meta.speechMs ?? 0) >= 1500 ? DOMAIN_PROMPT : undefined, !listening);
+    // 🧑 "if the front end. Detects something like the start words. But confidence is low. Then. We should request the backend to do it again. And confirm."
+    const lowConfidence = r.ok && !listening && (r.noSpeechProb > START_MAX_NO_SPEECH || r.avgLogprob < START_MIN_LOGPROB);
+    if (lowConfidence && Date.now() - lastHitAt < 3000) {
+      log('vc', 'local start-word hit with low server confidence; retrying backend transcription');
+      const retry = await voice.stt(blob, undefined, true);
+      if (retry.ok) r = retry;
+    }
     if (!r.ok) {   // a transient failure is silent: inside a reply the clip stays as audio and goes out with the reply; the user is told what to do only once
       log('vc', `stt failed: ${r.error}`);
       if (vc?.mode === 'command') {   // 🧑 command mode with no connection gave zero feedback: say what still works (the on-device words), at most every 6 s
@@ -247,10 +261,11 @@ export function createVoiceControl(ctx) {
     armCommandTimer();
     if (rest) runCommands(rest);
   }
-  function armCommandTimer() { clearTimeout(vc.timer); vc.timer = setTimeout(() => leaveCommandMode('silence'), COMMAND_SILENCE_MS); }
+  function armCommandTimer() { clearTimeout(vc.timer); vc.timer = setTimeout(() => leaveCommandMode('silence'), COMMAND_SILENCE_MS + Math.max(0, sayingUntil - Date.now())); }   // our own spoken prompt does not eat the window
   /** Back to INPUT mode with the draft kept. */
   function leaveCommandMode(why) {
     if (!vc || vc.mode !== 'command') return;
+    if (why === 'silence' && !vc.text.trim()) { clearTimeout(vc.timer); clearTimeout(vc.emptyTimer); log('vc', 'command mode left (silence) with nothing dictated: standby'); setDraft(vc.base); vc = null; recorder.setReplyMode(false); recorder.beep('done'); ctx.resumeAfterPause(); vcIdle(); return; }   // 🧑 an unrecognized command must not end in input mode
     clearTimeout(vc.timer); vc.mode = 'input'; log('vc', `command mode left (${why}); back to input`);
     recorder.beep('ready'); setVcState('dictating', 'say your reply');
     armSessionTimer();
@@ -266,11 +281,11 @@ export function createVoiceControl(ctx) {
     while (tokens.length && vc) {
       const t = tokens[0], two = tokens.slice(0, 2).join(' ');
       if (SEND_LOG_RE.test(two) || SEND_LOG_RE.test(tokens.slice(0, 3).join(' '))) { tokens.splice(0, SEND_LOG_RE.test(two) ? 2 : 3); log('vc', 'send log by voice'); tick('log', 'sending the log'); ctx.sendLog('voice command').then(r => { if (!r?.ok) sayAndMute('Sending the log failed'); }); continue; }
-      if (NEXT_AGENT_RE.test(tokens.slice(0, 4).join(' ')) || NEXT_AGENT_RE.test(tokens.slice(0, 3).join(' ')) || NEXT_AGENT_RE.test(two)) { log('vc', 'next agent with unread messages'); done.push('next agent'); finishSession(true); bargePaused = false; ctx.switchNextUnread(); left = true; break; }
-      if (SWITCH_BACK_RE.test(tokens.slice(0, 3).join(' ')) || SWITCH_BACK_RE.test(two)) { log('vc', 'switch back to the previous agent'); done.push('switch back'); finishSession(true); bargePaused = false; ctx.switchBack(); left = true; break; }
+      if (NEXT_AGENT_RE.test(tokens.slice(0, 4).join(' ')) || NEXT_AGENT_RE.test(tokens.slice(0, 3).join(' ')) || NEXT_AGENT_RE.test(two)) { log('vc', 'next agent with unread messages'); done.push('next agent'); recorder.beep('tick'); finishSession(true); bargePaused = false; ctx.switchNextUnread(); left = true; break; }
+      if (SWITCH_BACK_RE.test(tokens.slice(0, 3).join(' ')) || SWITCH_BACK_RE.test(two)) { log('vc', 'switch back to the previous agent'); done.push('switch back'); recorder.beep('tick'); finishSession(true); bargePaused = false; ctx.switchBack(); left = true; break; }
       if (/^(switch|switched|switching|go)$/.test(t) && /^(to|agent|agents)$/.test(tokens[1] ?? '')) {   // Whisper often hears "switched to"; the name is free-form: it takes the rest of the utterance and ends the chain
         const name = tokens.slice(/^(agent|agents)$/.test(tokens[1]) && tokens[2] === 'to' ? 3 : 2).join(' ');
-        done.push('switch'); finishSession(true); voiceSwitch(name); left = true; break;
+        done.push('switch'); recorder.beep('tick'); finishSession(true); voiceSwitch(name); left = true; break;
       }
       if (CANCEL_RE.test(two) || CANCEL_RE.test(t)) { cancelSession(); return done; }
       const take = [3, 2, 1].find(n => navCommand(tokens.slice(0, n).join(' ')));   // longest prefix that is one navigation command ("next three", "previous message", "back")
