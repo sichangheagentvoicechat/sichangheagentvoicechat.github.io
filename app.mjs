@@ -1,25 +1,25 @@
 /** Wires the model, Zulip events, voice service, player, voice control and DOM: feed, playback order, read state, switching, sending. Behavior is described in `design.md`. */
-import {createLog} from './log.mjs?v=0e9ce2e321';
-import {createLatency} from './latency.mjs?v=0e9ce2e321';
-import {createZulip, createEvents} from './zulip.mjs?v=0e9ce2e321';
-import {createVoice} from './voice.mjs?v=0e9ce2e321';
-import {createPlayer} from './player.mjs?v=0e9ce2e321';
-import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=0e9ce2e321';
-import {createModel, parsed, itemsOf} from './model.mjs?v=0e9ce2e321';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=0e9ce2e321';
-import {store} from './store.mjs?v=0e9ce2e321';
-import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=0e9ce2e321';
-import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=0e9ce2e321';
-import {createReads} from './reads.mjs?v=0e9ce2e321';
-import {createVoiceControl} from './voicecontrol.mjs?v=0e9ce2e321';
-import {createDictation} from './dictation.mjs?v=0e9ce2e321';
-import {rankTopics, similarText} from './grammar.mjs?v=0e9ce2e321';
+import {createLog} from './log.mjs?v=8b1fa1eb40';
+import {createLatency} from './latency.mjs?v=8b1fa1eb40';
+import {createZulip, createEvents} from './zulip.mjs?v=8b1fa1eb40';
+import {createVoice} from './voice.mjs?v=8b1fa1eb40';
+import {createPlayer} from './player.mjs?v=8b1fa1eb40';
+import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=8b1fa1eb40';
+import {createModel, parsed, itemsOf} from './model.mjs?v=8b1fa1eb40';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=8b1fa1eb40';
+import {store} from './store.mjs?v=8b1fa1eb40';
+import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=8b1fa1eb40';
+import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=8b1fa1eb40';
+import {createReads} from './reads.mjs?v=8b1fa1eb40';
+import {createVoiceControl} from './voicecontrol.mjs?v=8b1fa1eb40';
+import {createDictation} from './dictation.mjs?v=8b1fa1eb40';
+import {rankTopics, similarText} from './grammar.mjs?v=8b1fa1eb40';
 
-const BUILD = 'v2.0-0e9ce2e321';
+const BUILD = 'v2.0-8b1fa1eb40';
 const log = createLog();
 const lat = createLatency(log);
 addEventListener('error', e => log('err', `${e.message} @${e.filename?.split('/').pop()}:${e.lineno}`));
-addEventListener('unhandledrejection', e => log('err', `unhandled: ${e.reason?.message ?? e.reason}`));
+addEventListener('unhandledrejection', e => log('err', `unhandled: ${e.reason?.message ?? e.reason} @ ${String(e.reason?.stack ?? '').split('\n').slice(0, 3).join(' | ')}`));   // the stack says where, for the next report
 
 // ---- boot ----
 let cfg = store.get(ACCOUNT_KEY, null) ?? await login(store, log);
