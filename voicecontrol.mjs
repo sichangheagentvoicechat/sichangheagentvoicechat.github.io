@@ -3,13 +3,13 @@
  * end word sends, cancel word discards. Owns the microphone (recorder), the on-device keyword spotter and the switch question.
  * Everything it does to playback, the feed or the composer goes through `ctx`.
  */
-import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=c55b604076';
-import {createKeywordSpotter} from './kws.mjs?v=c55b604076';
-import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=c55b604076';
-import {itemsOf} from './model.mjs?v=c55b604076';
-import {$, toast} from './chrome.mjs?v=c55b604076';
+import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=99592fdd72';
+import {createKeywordSpotter} from './kws.mjs?v=99592fdd72';
+import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=99592fdd72';
+import {itemsOf} from './model.mjs?v=99592fdd72';
+import {$, toast} from './chrome.mjs?v=99592fdd72';
 import {normalize, rankTopics, clearWinner, commandPhrases, afterStartWord as afterStart, stripResumePhrase as stripResume, isCommandWord as isCmd, isCancel, hasCancelWord as hasCancel, endsWithCancel as endsCancel,
-  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, SEND_LOG_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=c55b604076';
+  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, SEND_LOG_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=99592fdd72';
 
 const RESUME_SILENCE_MS = 1000;   // plus the recorder's 0.7 s end-of-utterance silence: about 1.7 s of quiet after the phrase
 const FOLLOW_UP_GRACE_MS = 6000;
@@ -270,7 +270,8 @@ export function createVoiceControl(ctx) {
     if (kwsOn && rest !== null && afterStartWord(heard) === null && !commandLike(heard) && !commandFirst) { log('vc', `ignored: "${heard}" (transcript is not the start word)`); standby(); return; }
     const followUp = Date.now() - lastReplyEndMs < FOLLOW_UP_GRACE_MS;
     if (rest === null && followUp && commandLike(heard)) rest = heard;   // a command right after a send is still a command, never reply text
-    if (rest === null && followUp) { log('vc', `follow-up right after a send: "${heard}"`); openSession(''); addToSession(heard); return; }
+    // 🧑 "The system picked up garbage": room talk 2 s after a send opened a reply with no start word and was sent after the silence. Speech after a send now needs the start word like any other.
+    if (rest === null && followUp) log('vc', `right after a send, but no start word: "${heard}"`);
     if (rest === null) { noteStartResult(false); resumeBarge(); log('vc', `ignored: "${heard}" (no start word)`); toast(`Ignored (no start word): ${heard.slice(0, 60)}`); recorder.setReplyMode(false); vcIdle(); return; }
     noteStartResult(true);
     if (commandFirst && afterStartWord(heard) === null) { openSession('', true); enterCommandMode(heard.trim().split(/\s+/).slice(1).join(' ')); return; }   // "katana next two" from standby: command mode directly
