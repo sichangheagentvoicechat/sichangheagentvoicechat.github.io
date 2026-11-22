@@ -3,13 +3,13 @@
  * end word sends, cancel word discards. Owns the microphone (recorder), the on-device keyword spotter and the switch question.
  * Everything it does to playback, the feed or the composer goes through `ctx`.
  */
-import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=7f920d5bf4';
-import {createKeywordSpotter} from './kws.mjs?v=7f920d5bf4';
-import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=7f920d5bf4';
-import {itemsOf} from './model.mjs?v=7f920d5bf4';
-import {$, toast} from './chrome.mjs?v=7f920d5bf4';
+import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=8d031b042c';
+import {createKeywordSpotter} from './kws.mjs?v=8d031b042c';
+import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=8d031b042c';
+import {itemsOf} from './model.mjs?v=8d031b042c';
+import {$, toast} from './chrome.mjs?v=8d031b042c';
 import {normalize, rankTopics, clearWinner, commandPhrases, afterStartWord as afterStart, stripResumePhrase as stripResume, isCommandWord as isCmd, isCancel, hasCancelWord as hasCancel, endsWithCancel as endsCancel,
-  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, SEND_LOG_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=7f920d5bf4';
+  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, SEND_LOG_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=8d031b042c';
 
 const RESUME_SILENCE_MS = 1000;   // plus the recorder's 0.7 s end-of-utterance silence: about 1.7 s of quiet after the phrase
 const FOLLOW_UP_GRACE_MS = 6000;
@@ -69,7 +69,18 @@ export function createVoiceControl(ctx) {
   const setDraft = text => { draft.value = text; ctx.autosize(); };
   const showSessionText = () => setDraft([vc.base.trim(), vc.text].filter(Boolean).join(' '));
 
-  const setVcState = (state, label) => { $('listen').dataset.state = state; $('listen-label').textContent = label; $('listen').title = 'Voice control: ' + label; $('listen').setAttribute('aria-label', 'Voice control: ' + label); };
+  // 🧑 "maybe the user would not understand that the beats. Are. Indicating that they are still in a certain mode, so maybe we should also add. Visual indicators in case they freak out."
+  function showModeBanner() {
+    const el = $('mode-banner'); if (!el) return;
+    const mode = vc && !vc.ending ? (vc.mode === 'command' ? 'command' : 'input') : null;
+    el.hidden = !mode; if (!mode) return;
+    el.dataset.mode = mode;
+    $('mode-name').textContent = mode === 'command' ? 'Command mode' : 'Input mode';
+    $('mode-hint').textContent = mode === 'command'
+      ? `Say a command: next, back, pause, resume, switch to NAME. "${resumePhrase()}" leaves, "${cancelWord()}" cancels. Two equal low beats = still in command mode.`
+      : `What you say becomes your reply. "${resumePhrase()}" sends, "${cancelWord()}" cancels. A low rising beat = still listening.`;
+  }
+  const setVcState = (state, label) => { showModeBanner(); $('listen').dataset.state = state; $('listen-label').textContent = label; $('listen').title = 'Voice control: ' + label; $('listen').setAttribute('aria-label', 'Voice control: ' + label); };
   const vcIdle = () => { const playing = ['playing', 'loading'].includes(player.position().status); setVcState(playing ? 'listening' : 'on', playing ? 'listening' : 'paused'); };
 
   const recorder = createRecorder({
@@ -364,6 +375,7 @@ export function createVoiceControl(ctx) {
 
   // ---- input mode: the reply session ----
   let lastVoiceMs = 0, lastPulseMs = 0;
+  setInterval(showModeBanner, 500);   // also catches session ends that skip setVcState
   setInterval(() => {   // the mode beat: only in an open session, only while nobody (neither the human nor the app) is making sound
     if (!vc || vc.ending || recorder.inUtterance() || Date.now() < sayingUntil || recorder.earconLeftMs() > 0) { if (recorder.inUtterance()) lastVoiceMs = Date.now(); return; }
     if (['playing', 'loading'].includes(player.position().status)) return;
