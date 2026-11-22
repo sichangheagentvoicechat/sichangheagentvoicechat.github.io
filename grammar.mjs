@@ -1,5 +1,5 @@
 /** Pure voice-command grammar: word matching, agent-name ranking, navigation phrases, start/end/cancel words. No DOM, no state. */
-import {soundsLikeWord, stripTrailingControl, leadingControlCount} from './text.mjs?v=2ac5246c5e';
+import {soundsLikeWord, stripTrailingControl, leadingControlCount} from './text.mjs?v=60239819c1';
 
 export const RESUME_DEFAULT = 'tomato';   // the human's pick from the end-word study: 99% on-device detection, 0 false accepts in 4.9 h of speech
 export const START_DEFAULT = 'attention';   // chosen from the trigger-word study: long, no clipped final consonant, 98-100% detection, 0 false accepts
@@ -122,6 +122,8 @@ export function navCommand(words) {
   const rest = tokens.filter(t => t !== 'message' && t !== 'messages');
   const dirWord = {forward: 1, forwards: 1, ahead: 1, backward: -1, backwards: -1}[rest[1]];
   if (rest[0] === 'skip' && dirWord && rest.length <= 3) { const c = rest.length === 3 ? NUMBERS[rest[2]] : 1; if (c) return {dir: dirWord, whole, count: c}; }
+  // 🧑 "I need a voice command that. Can skip back to each message's start": "restart", "start", "beginning", "top" (also "from the start", "message start") replay the current message from its first sentence.
+  if (rest.length && rest.length <= 3 && rest.every(t => ['restart', 'start', 'beginning', 'top', 'from', 'the', 'go', 'to'].includes(t)) && rest.some(t => ['restart', 'start', 'beginning', 'top'].includes(t))) return {dir: -1, whole: true, count: 1, restart: true};
   const kind = t => ['back', 'previous', 'last'].includes(t) ? -1 : ['next', 'skip', 'forward'].includes(t) ? 1 : ['again', 'repeat'].includes(t) ? 0 : null;
   const n = NUMBERS[rest.at(-1)];
   if (rest.length === 2 && n && !NUMBERS[rest[0]]) { const d = kind(rest[0]); if (d) return {dir: d, whole, count: n}; }   // "next three", "skip five", "back two"

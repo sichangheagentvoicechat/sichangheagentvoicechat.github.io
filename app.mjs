@@ -1,21 +1,21 @@
 /** Wires the model, Zulip events, voice service, player, voice control and DOM: feed, playback order, read state, switching, sending. Behavior is described in `design.md`. */
-import {createLog} from './log.mjs?v=2ac5246c5e';
-import {createLatency} from './latency.mjs?v=2ac5246c5e';
-import {createZulip, createEvents} from './zulip.mjs?v=2ac5246c5e';
-import {createVoice} from './voice.mjs?v=2ac5246c5e';
-import {createPlayer} from './player.mjs?v=2ac5246c5e';
-import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=2ac5246c5e';
-import {createModel, parsed, itemsOf} from './model.mjs?v=2ac5246c5e';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=2ac5246c5e';
-import {store} from './store.mjs?v=2ac5246c5e';
-import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=2ac5246c5e';
-import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=2ac5246c5e';
-import {createReads} from './reads.mjs?v=2ac5246c5e';
-import {createVoiceControl} from './voicecontrol.mjs?v=2ac5246c5e';
-import {createDictation} from './dictation.mjs?v=2ac5246c5e';
-import {rankTopics, similarText} from './grammar.mjs?v=2ac5246c5e';
+import {createLog} from './log.mjs?v=60239819c1';
+import {createLatency} from './latency.mjs?v=60239819c1';
+import {createZulip, createEvents} from './zulip.mjs?v=60239819c1';
+import {createVoice} from './voice.mjs?v=60239819c1';
+import {createPlayer} from './player.mjs?v=60239819c1';
+import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=60239819c1';
+import {createModel, parsed, itemsOf} from './model.mjs?v=60239819c1';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=60239819c1';
+import {store} from './store.mjs?v=60239819c1';
+import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=60239819c1';
+import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=60239819c1';
+import {createReads} from './reads.mjs?v=60239819c1';
+import {createVoiceControl} from './voicecontrol.mjs?v=60239819c1';
+import {createDictation} from './dictation.mjs?v=60239819c1';
+import {rankTopics, similarText} from './grammar.mjs?v=60239819c1';
 
-const BUILD = 'v2.0-2ac5246c5e';
+const BUILD = 'v2.0-60239819c1';
 const log = createLog();
 const lat = createLatency(log);
 addEventListener('error', e => log('err', `${e.message} @${e.filename?.split('/').pop()}:${e.lineno}`));
@@ -691,9 +691,14 @@ draftEl.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey 
 draftEl.addEventListener('focus', () => setTimeout(() => { if (atBottom()) feed.scrollTop = feed.scrollHeight; }, 300));
 
 /** Navigation by voice: chunk or whole-message steps, or replay of the current chunk (dir 0). */
-function navigate({dir, whole, count}) {
-  log('vc', `navigate ${dir > 0 ? 'next' : dir < 0 ? 'previous' : 'again'}${whole ? ' message' : ''} x${count}`);
+function navigate({dir, whole, count, restart}) {
+  log('vc', `navigate ${restart ? 'restart message' : dir > 0 ? 'next' : dir < 0 ? 'previous' : 'again'}${whole ? ' message' : ''} x${count}`);
   player.unlock();
+  if (restart) {   // the message being read (or last heard) from its first sentence
+    const last = store.get('voice2-last', null), m = nowMsgId !== null ? model.find(nowMsgId) : last && model.find(last.msgId);
+    if (m) playFrom(m, 0); else jump(-1, true);
+    return;
+  }
   if (dir === 0) {
     const m = nowMsgId !== null ? model.find(nowMsgId) : null, last = store.get('voice2-last', null);
     const target = m ? {m, idx: nowIdx} : last && model.find(last.msgId) ? {m: model.find(last.msgId), idx: last.idx} : null;
