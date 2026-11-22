@@ -1,21 +1,21 @@
 /** Wires the model, Zulip events, voice service, player, voice control and DOM: feed, playback order, read state, switching, sending. Behavior is described in `design.md`. */
-import {createLog} from './log.mjs?v=723ce9e18d';
-import {createLatency} from './latency.mjs?v=723ce9e18d';
-import {createZulip, createEvents} from './zulip.mjs?v=723ce9e18d';
-import {createVoice} from './voice.mjs?v=723ce9e18d';
-import {createPlayer} from './player.mjs?v=723ce9e18d';
-import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=723ce9e18d';
-import {createModel, parsed, itemsOf} from './model.mjs?v=723ce9e18d';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=723ce9e18d';
-import {store} from './store.mjs?v=723ce9e18d';
-import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=723ce9e18d';
-import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=723ce9e18d';
-import {createReads} from './reads.mjs?v=723ce9e18d';
-import {createVoiceControl} from './voicecontrol.mjs?v=723ce9e18d';
-import {createDictation} from './dictation.mjs?v=723ce9e18d';
-import {rankTopics, similarText} from './grammar.mjs?v=723ce9e18d';
+import {createLog} from './log.mjs?v=2ac5246c5e';
+import {createLatency} from './latency.mjs?v=2ac5246c5e';
+import {createZulip, createEvents} from './zulip.mjs?v=2ac5246c5e';
+import {createVoice} from './voice.mjs?v=2ac5246c5e';
+import {createPlayer} from './player.mjs?v=2ac5246c5e';
+import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=2ac5246c5e';
+import {createModel, parsed, itemsOf} from './model.mjs?v=2ac5246c5e';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=2ac5246c5e';
+import {store} from './store.mjs?v=2ac5246c5e';
+import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=2ac5246c5e';
+import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=2ac5246c5e';
+import {createReads} from './reads.mjs?v=2ac5246c5e';
+import {createVoiceControl} from './voicecontrol.mjs?v=2ac5246c5e';
+import {createDictation} from './dictation.mjs?v=2ac5246c5e';
+import {rankTopics, similarText} from './grammar.mjs?v=2ac5246c5e';
 
-const BUILD = 'v2.0-723ce9e18d';
+const BUILD = 'v2.0-2ac5246c5e';
 const log = createLog();
 const lat = createLatency(log);
 addEventListener('error', e => log('err', `${e.message} @${e.filename?.split('/').pop()}:${e.lineno}`));
@@ -854,7 +854,8 @@ $('picker').addEventListener('close', () => { pickerClosedMs = Date.now(); });
 function fitPicker() {
   const p = $('picker'), v = window.visualViewport;
   if (!p.open || !v) return;
-  p.style.position = 'fixed'; p.style.top = v.offsetTop + 'px'; p.style.margin = '0 auto'; p.style.maxHeight = Math.max(160, v.height - 8) + 'px';
+  // 🧑 "The list still does not. Grow from the bottom up": the picker was pinned to the top of the visible area; it now sits on the bottom edge (just above the keyboard) and grows upward.
+  p.style.position = 'fixed'; p.style.top = 'auto'; p.style.bottom = Math.max(0, window.innerHeight - v.offsetTop - v.height) + 'px'; p.style.margin = '0 auto'; p.style.maxHeight = Math.max(160, v.height - 8) + 'px';
   p.firstElementChild.style.maxHeight = p.style.maxHeight;
 }
 window.visualViewport?.addEventListener('resize', fitPicker);
