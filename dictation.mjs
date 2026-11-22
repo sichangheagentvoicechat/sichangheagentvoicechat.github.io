@@ -1,6 +1,6 @@
 /** Manual dictation from the composer's microphone button: clips are transcribed into the draft; "send" goes at once (unfinished clips as audio). */
-import {DOMAIN_PROMPT} from './text.mjs?v=c29be554df';
-import {$, toast, showBanner, hideBanner} from './chrome.mjs?v=c29be554df';
+import {DOMAIN_PROMPT} from './text.mjs?v=723ce9e18d';
+import {$, toast, showBanner, hideBanner} from './chrome.mjs?v=723ce9e18d';
 
 const joinText = (base, parts) => [base.trim(), ...parts].filter(Boolean).join(' ');
 
