@@ -3,19 +3,22 @@
  * end word sends, cancel word discards. Owns the microphone (recorder), the on-device keyword spotter and the switch question.
  * Everything it does to playback, the feed or the composer goes through `ctx`.
  */
-import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=1a5e3b471d';
-import {createKeywordSpotter} from './kws.mjs?v=1a5e3b471d';
-import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=1a5e3b471d';
-import {itemsOf} from './model.mjs?v=1a5e3b471d';
-import {$, toast} from './chrome.mjs?v=1a5e3b471d';
+import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=7f920d5bf4';
+import {createKeywordSpotter} from './kws.mjs?v=7f920d5bf4';
+import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=7f920d5bf4';
+import {itemsOf} from './model.mjs?v=7f920d5bf4';
+import {$, toast} from './chrome.mjs?v=7f920d5bf4';
 import {normalize, rankTopics, clearWinner, commandPhrases, afterStartWord as afterStart, stripResumePhrase as stripResume, isCommandWord as isCmd, isCancel, hasCancelWord as hasCancel, endsWithCancel as endsCancel,
-  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, SEND_LOG_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=1a5e3b471d';
+  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, SEND_LOG_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=7f920d5bf4';
 
 const RESUME_SILENCE_MS = 1000;   // plus the recorder's 0.7 s end-of-utterance silence: about 1.7 s of quiet after the phrase
 const FOLLOW_UP_GRACE_MS = 6000;
 const EMPTY_SESSION_MS = 8000;
 const COMMAND_SILENCE_MS = 8000;
-const EARCON_GAIN = {cancel: 0.85, command: 0.75, empty: 0.7};   // the quiet ones were the ones the human could not hear
+const EARCON_GAIN = {cancel: 0.85, command: 0.75, empty: 0.7};
+// 🧑 "play beats once in a while. Maybe every five second ... a double beat. That is low" / "only ... when the user is silent, ... indicating that they are still in either input or command mode"
+const MODE_PULSE_MS = 5000;   // a session silent this long gets a low double beat, repeated at this interval; input: low then higher (A3, E4); command: two equal low beats (A3)
+EARCON_GAIN.pulseInput = EARCON_GAIN.pulseCommand = 0.35;   // the quiet ones were the ones the human could not hear
 const CHOICE_MS = 20000;
 const START_MIN_SPEECH_MS = 250, START_MAX_NO_SPEECH = 0.6, START_MIN_LOGPROB = -1.0;
 const UPLOADS_PER_MIN = 8, EMPTY_RUN_BACKOFF = 3, BACKOFF_MS = 60000;
@@ -71,9 +74,9 @@ export function createVoiceControl(ctx) {
 
   const recorder = createRecorder({
     log, onClip: ctx.onClip, onLevel: ctx.onLevel, onBarge, onCommandClip,
-    onSpeechOnset: () => { if (!kwsSpotter.ready()) return; for (const w of kwsSpotter.restart(0.6)) onKwsHit(w); if (vc?.mode === 'command' || choiceOpen()) for (const tag of kwsSpotter.restartCommands(0.6)) onCommandHit(tag); },
+    onSpeechOnset: () => { lastVoiceMs = Date.now(); if (!kwsSpotter.ready()) return; for (const w of kwsSpotter.restart(0.6)) onKwsHit(w); if (vc?.mode === 'command' || choiceOpen()) for (const tag of kwsSpotter.restartCommands(0.6)) onCommandHit(tag); },
     onKwsAudio: samples => { for (const w of kwsSpotter.feed(samples)) onKwsHit(w); if (vc?.mode === 'command' || choiceOpen()) for (const tag of kwsSpotter.feedCommands(samples)) onCommandHit(tag); },
-    onEarcon: kind => { player.earcon(EARCON_NOTES[kind], EARCON_NOTE_S, EARCON_GAIN[kind] ?? 0.45); try { navigator.vibrate?.(kind === 'cancel' ? [60, 40, 60] : 0); } catch { /* unsupported (iOS) */ } if (lastHitAt && Date.now() - lastHitAt < 1500) log('lat', `local hit -> ${kind} sound started in ${Date.now() - lastHitAt}ms`); },
+    onEarcon: kind => { lastPulseMs = Date.now(); player.earcon(EARCON_NOTES[kind], EARCON_NOTE_S, EARCON_GAIN[kind] ?? 0.45); try { navigator.vibrate?.(kind === 'cancel' ? [60, 40, 60] : 0); } catch { /* unsupported (iOS) */ } if (lastHitAt && Date.now() - lastHitAt < 1500) log('lat', `local hit -> ${kind} sound started in ${Date.now() - lastHitAt}ms`); },
   });
 
   /** Our own spoken prompt: the microphone ignores speech while it plays; a keyword still interrupts it. */
@@ -360,6 +363,14 @@ export function createVoiceControl(ctx) {
   }
 
   // ---- input mode: the reply session ----
+  let lastVoiceMs = 0, lastPulseMs = 0;
+  setInterval(() => {   // the mode beat: only in an open session, only while nobody (neither the human nor the app) is making sound
+    if (!vc || vc.ending || recorder.inUtterance() || Date.now() < sayingUntil || recorder.earconLeftMs() > 0) { if (recorder.inUtterance()) lastVoiceMs = Date.now(); return; }
+    if (['playing', 'loading'].includes(player.position().status)) return;
+    const quietSince = Math.max(lastVoiceMs, lastPulseMs, vc.openedAt ?? 0);
+    if (Date.now() - quietSince < MODE_PULSE_MS) return;
+    lastPulseMs = Date.now(); recorder.beep(vc.mode === 'command' ? 'pulseCommand' : 'pulseInput');
+  }, 500);
   function openSession(rest, quiet = false) {
     bargePaused = false;
     if (['playing', 'loading'].includes(player.position().status)) player.pause();
