@@ -1,21 +1,21 @@
 /** Wires the model, Zulip events, voice service, player, voice control and DOM: feed, playback order, read state, switching, sending. Behavior is described in `design.md`. */
-import {createLog} from './log.mjs?v=8a0835f7e6';
-import {createLatency} from './latency.mjs?v=8a0835f7e6';
-import {createZulip, createEvents} from './zulip.mjs?v=8a0835f7e6';
-import {createVoice} from './voice.mjs?v=8a0835f7e6';
-import {createPlayer} from './player.mjs?v=8a0835f7e6';
-import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=8a0835f7e6';
-import {createModel, parsed, itemsOf} from './model.mjs?v=8a0835f7e6';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=8a0835f7e6';
-import {store} from './store.mjs?v=8a0835f7e6';
-import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=8a0835f7e6';
-import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=8a0835f7e6';
-import {createReads} from './reads.mjs?v=8a0835f7e6';
-import {createVoiceControl} from './voicecontrol.mjs?v=8a0835f7e6';
-import {createDictation} from './dictation.mjs?v=8a0835f7e6';
-import {rankTopics, similarText} from './grammar.mjs?v=8a0835f7e6';
+import {createLog} from './log.mjs?v=fe2723533b';
+import {createLatency} from './latency.mjs?v=fe2723533b';
+import {createZulip, createEvents} from './zulip.mjs?v=fe2723533b';
+import {createVoice} from './voice.mjs?v=fe2723533b';
+import {createPlayer} from './player.mjs?v=fe2723533b';
+import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=fe2723533b';
+import {createModel, parsed, itemsOf} from './model.mjs?v=fe2723533b';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=fe2723533b';
+import {store} from './store.mjs?v=fe2723533b';
+import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=fe2723533b';
+import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=fe2723533b';
+import {createReads} from './reads.mjs?v=fe2723533b';
+import {createVoiceControl} from './voicecontrol.mjs?v=fe2723533b';
+import {createDictation} from './dictation.mjs?v=fe2723533b';
+import {rankTopics, similarText} from './grammar.mjs?v=fe2723533b';
 
-const BUILD = 'v2.0-8a0835f7e6';
+const BUILD = 'v2.0-fe2723533b';
 const log = createLog();
 const lat = createLatency(log);
 addEventListener('error', e => log('err', `${e.message} @${e.filename?.split('/').pop()}:${e.lineno}`));
@@ -490,7 +490,7 @@ function jump(direction, whole = false, noRestart = false, defer = false) {
   const firstUnread = flat.find(it => !model.find(it.msgId)?.flags?.includes('read'));
   if (whole) {
     const mi = from ? agents.findIndex(m => m.id === from.msgId) : -1;
-    const m = from ? agents[mi + direction + (direction < 0 && from.idx > 0 && !burst ? 1 : 0)]
+    const m = from ? agents[mi + direction + (direction < 0 && from.idx > 0 && !burst && !noRestart ? 1 : 0)]
       : direction < 0 ? agents.at(-1)
       : firstUnread ? agents.find(a => a.id === firstUnread.msgId) : hi >= 0 ? agents[agents.findIndex(a => a.id === flat[hi].msgId) + 1] : null;
     target = m && itemsOf(m)[0];
