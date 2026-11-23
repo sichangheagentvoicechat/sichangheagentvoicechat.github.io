@@ -3,13 +3,13 @@
  * end word sends, cancel word discards. Owns the microphone (recorder), the on-device keyword spotter and the switch question.
  * Everything it does to playback, the feed or the composer goes through `ctx`.
  */
-import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=e75388d252';
-import {createKeywordSpotter} from './kws.mjs?v=e75388d252';
-import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=e75388d252';
-import {itemsOf} from './model.mjs?v=e75388d252';
-import {$, toast} from './chrome.mjs?v=e75388d252';
+import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=5879fcc3c4';
+import {createKeywordSpotter} from './kws.mjs?v=5879fcc3c4';
+import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=5879fcc3c4';
+import {itemsOf} from './model.mjs?v=5879fcc3c4';
+import {$, toast} from './chrome.mjs?v=5879fcc3c4';
 import {normalize, rankTopics, clearWinner, commandPhrases, afterStartWord as afterStart, stripResumePhrase as stripResume, isCommandWord as isCmd, isCancel, hasCancelWord as hasCancel, endsWithCancel as endsCancel,
-  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, SEND_LOG_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=e75388d252';
+  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, SEND_LOG_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=5879fcc3c4';
 
 const RESUME_SILENCE_MS = 1000;   // plus the recorder's 0.7 s end-of-utterance silence: about 1.7 s of quiet after the phrase
 const FOLLOW_UP_GRACE_MS = 6000;
