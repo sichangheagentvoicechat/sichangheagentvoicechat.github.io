@@ -3,13 +3,13 @@
  * end word sends, cancel word discards. Owns the microphone (recorder), the on-device keyword spotter and the switch question.
  * Everything it does to playback, the feed or the composer goes through `ctx`.
  */
-import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=5879fcc3c4';
-import {createKeywordSpotter} from './kws.mjs?v=5879fcc3c4';
-import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=5879fcc3c4';
-import {itemsOf} from './model.mjs?v=5879fcc3c4';
-import {$, toast} from './chrome.mjs?v=5879fcc3c4';
+import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=8a0835f7e6';
+import {createKeywordSpotter} from './kws.mjs?v=8a0835f7e6';
+import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=8a0835f7e6';
+import {itemsOf} from './model.mjs?v=8a0835f7e6';
+import {$, toast} from './chrome.mjs?v=8a0835f7e6';
 import {normalize, rankTopics, clearWinner, commandPhrases, afterStartWord as afterStart, stripResumePhrase as stripResume, isCommandWord as isCmd, isCancel, hasCancelWord as hasCancel, endsWithCancel as endsCancel,
-  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, SEND_LOG_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=5879fcc3c4';
+  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, SEND_LOG_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=8a0835f7e6';
 
 const RESUME_SILENCE_MS = 1000;   // plus the recorder's 0.7 s end-of-utterance silence: about 1.7 s of quiet after the phrase
 const FOLLOW_UP_GRACE_MS = 6000;
@@ -183,10 +183,12 @@ export function createVoiceControl(ctx) {
     if (vc) { clearTimeout(vc.timer); clearTimeout(vc.emptyTimer); vc.timer = vc.emptyTimer = 0; }
     setVcState('heard', 'hearing you');
   }
+  let clipsInFlight = 0;   // clips whose transcription is still running
   async function onCommandClip(blob, meta = {}) {
     if (ctx.dictating()) return;
     if (vc) { meta.part = {blob, text: vc.mode === 'command' ? '' : null, fromCommand: vc.mode === 'command'}; (vc.parts ??= []).push(meta.part); }   // kept so a spotted end word can send the audio itself; speech in command mode is never reply text
-    try { await handleCommandClip(blob, meta); } finally { if (vc && !vc.ending && !vc.timer && !vc.emptyTimer && !recorder.inUtterance()) armSessionTimer(); utterancePending = false; clearTimeout(utteranceTimer); if (!userSpeaking()) ctx.maybeAutoplay(); }
+    clipsInFlight++;
+    try { await handleCommandClip(blob, meta); } finally { clipsInFlight--; if (vc && !vc.ending && !vc.timer && !vc.emptyTimer && !recorder.inUtterance()) armSessionTimer(); utterancePending = false; clearTimeout(utteranceTimer); if (!userSpeaking()) ctx.maybeAutoplay(); }
   }
   /** Every start-word clip costs a Zulip upload plus messages: cap them, and back off in a noisy room instead of exhausting the rate limit. */
   function noteStartResult(useful) {
@@ -445,7 +447,9 @@ export function createVoiceControl(ctx) {
   /** A session with nothing said never hangs: close it and carry on. */
   function closeEmptySession() {
     if (!vc || vc.text.trim()) return;
-    if (utterancePending) { vc.emptyTimer = setTimeout(closeEmptySession, 2000); return; }   // still talking (the clip's transcript is not back yet): never close mid-speech
+    // 🧑 2026-11-23 "I was in input mode. Said something. And then, when I said the end word, everything got dropped": `utterancePending` lapses 6 s after speech starts, so a
+    // sentence over 8 s that began with the start word was cut off as an 'empty' session and its transcript then rejected. The microphone's own view of speech, and a clip still being transcribed, now also hold it open.
+    if (utterancePending || recorder.inUtterance() || clipsInFlight) { vc.emptyTimer = setTimeout(closeEmptySession, 2000); return; }   // still talking (the clip's transcript is not back yet): never close mid-speech
     if (untranscribed()) { sendVoiceReplyNow('clips could not be transcribed here'); return; }   // offline: the audio is sent and transcribed by the server later
     log('vc', 'empty session timed out: resuming');
     vc = null; recorder.setReplyMode(false); recorder.beep('empty');
