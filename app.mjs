@@ -1,21 +1,21 @@
 /** Wires the model, Zulip events, voice service, player, voice control and DOM: feed, playback order, read state, switching, sending. Behavior is described in `design.md`. */
-import {createLog} from './log.mjs?v=fe2723533b';
-import {createLatency} from './latency.mjs?v=fe2723533b';
-import {createZulip, createEvents} from './zulip.mjs?v=fe2723533b';
-import {createVoice} from './voice.mjs?v=fe2723533b';
-import {createPlayer} from './player.mjs?v=fe2723533b';
-import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=fe2723533b';
-import {createModel, parsed, itemsOf} from './model.mjs?v=fe2723533b';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=fe2723533b';
-import {store} from './store.mjs?v=fe2723533b';
-import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=fe2723533b';
-import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=fe2723533b';
-import {createReads} from './reads.mjs?v=fe2723533b';
-import {createVoiceControl} from './voicecontrol.mjs?v=fe2723533b';
-import {createDictation} from './dictation.mjs?v=fe2723533b';
-import {rankTopics, similarText} from './grammar.mjs?v=fe2723533b';
+import {createLog} from './log.mjs?v=4752e469c0';
+import {createLatency} from './latency.mjs?v=4752e469c0';
+import {createZulip, createEvents} from './zulip.mjs?v=4752e469c0';
+import {createVoice} from './voice.mjs?v=4752e469c0';
+import {createPlayer} from './player.mjs?v=4752e469c0';
+import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=4752e469c0';
+import {createModel, parsed, itemsOf} from './model.mjs?v=4752e469c0';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=4752e469c0';
+import {store} from './store.mjs?v=4752e469c0';
+import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=4752e469c0';
+import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=4752e469c0';
+import {createReads} from './reads.mjs?v=4752e469c0';
+import {createVoiceControl} from './voicecontrol.mjs?v=4752e469c0';
+import {createDictation} from './dictation.mjs?v=4752e469c0';
+import {rankTopics, similarText} from './grammar.mjs?v=4752e469c0';
 
-const BUILD = 'v2.0-fe2723533b';
+const BUILD = 'v2.0-4752e469c0';
 const log = createLog();
 const lat = createLatency(log);
 addEventListener('error', e => log('err', `${e.message} @${e.filename?.split('/').pop()}:${e.lineno}`));
@@ -966,7 +966,7 @@ $('dbg-ping').onclick = async () => { const r = await checkVoice(); toast(r.text
 async function checkVoice() {
   const r = await voice.ping();
   voiceState = r.ok ? {ok: true, text: `ok rtt=${r.totalMs}ms stt=${r.workers?.stt} tts=${r.workers?.tts} active=${r.active} up=${r.uptimeS}s`} : {ok: false, text: `NOT responding: ${r.error}`};
-  if (r.ok && r.priorities) { model.setPriorities(r.priorities); renderUnread(); }   // human-manager order of the agent list
+  if (r.ok && r.priorities) { model.setPriorities(r.priorities); model.setClosed(r.closed, name => name === current); renderUnread(); }   // human-manager order of the agent list
   log('voice', voiceState.text);
   return voiceState;
 }
