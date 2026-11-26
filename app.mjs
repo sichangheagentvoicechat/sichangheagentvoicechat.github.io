@@ -1,21 +1,21 @@
 /** Wires the model, Zulip events, voice service, player, voice control and DOM: feed, playback order, read state, switching, sending. Behavior is described in `design.md`. */
-import {createLog} from './log.mjs?v=51f486fece';
-import {createLatency} from './latency.mjs?v=51f486fece';
-import {createZulip, createEvents} from './zulip.mjs?v=51f486fece';
-import {createVoice} from './voice.mjs?v=51f486fece';
-import {createPlayer} from './player.mjs?v=51f486fece';
-import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=51f486fece';
-import {createModel, parsed, itemsOf} from './model.mjs?v=51f486fece';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=51f486fece';
-import {store} from './store.mjs?v=51f486fece';
-import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=51f486fece';
-import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=51f486fece';
-import {createReads} from './reads.mjs?v=51f486fece';
-import {createVoiceControl} from './voicecontrol.mjs?v=51f486fece';
-import {createDictation} from './dictation.mjs?v=51f486fece';
-import {rankTopics, similarText} from './grammar.mjs?v=51f486fece';
+import {createLog} from './log.mjs?v=1982d20342';
+import {createLatency} from './latency.mjs?v=1982d20342';
+import {createZulip, createEvents} from './zulip.mjs?v=1982d20342';
+import {createVoice} from './voice.mjs?v=1982d20342';
+import {createPlayer} from './player.mjs?v=1982d20342';
+import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=1982d20342';
+import {createModel, parsed, itemsOf} from './model.mjs?v=1982d20342';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=1982d20342';
+import {store} from './store.mjs?v=1982d20342';
+import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=1982d20342';
+import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=1982d20342';
+import {createReads} from './reads.mjs?v=1982d20342';
+import {createVoiceControl} from './voicecontrol.mjs?v=1982d20342';
+import {createDictation} from './dictation.mjs?v=1982d20342';
+import {rankTopics, similarText} from './grammar.mjs?v=1982d20342';
 
-const BUILD = 'v2.0-51f486fece';
+const BUILD = 'v2.0-1982d20342';
 const log = createLog();
 const lat = createLatency(log);
 addEventListener('error', e => log('err', `${e.message} @${e.filename?.split('/').pop()}:${e.lineno}`));

@@ -1,5 +1,5 @@
 /** Conversation state (pure data, no DOM, no network): messages per topic, unread, play queues. */
-import {parseAgentMessage, messageChunks} from './text.mjs?v=51f486fece';
+import {parseAgentMessage, messageChunks} from './text.mjs?v=1982d20342';
 
 const parsedCache = new WeakMap();
 
