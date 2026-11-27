@@ -1,5 +1,5 @@
 /** Pure voice-command grammar: word matching, agent-name ranking, navigation phrases, start/end/cancel words. No DOM, no state. */
-import {soundsLikeWord, stripTrailingControl, leadingControlCount} from './text.mjs?v=1982d20342';
+import {soundsLikeWord, stripTrailingControl, leadingControlCount} from './text.mjs?v=f004732b18';
 
 export const RESUME_DEFAULT = 'tomato';   // the human's pick from the end-word study: 99% on-device detection, 0 false accepts in 4.9 h of speech
 export const START_DEFAULT = 'attention';   // chosen from the trigger-word study: long, no clipped final consonant, 98-100% detection, 0 false accepts
@@ -120,6 +120,8 @@ export function navCommand(words) {
   const tokens = words.split(' ').filter(Boolean);
   const whole = tokens.includes('message') || tokens.includes('messages');
   const rest = tokens.filter(t => t !== 'message' && t !== 'messages');
+  // "first unread", "unread", "go to the first unread": jump to the first unread message of this agent
+  if (rest.length && rest.length <= 5 && rest.includes('unread') && rest.every(t => ['first', 'unread', 'go', 'to', 'the', 'skip'].includes(t))) return {dir: 1, whole: true, count: 1, unread: true};
   // 🧑 2026-11-23 "trying to skip to the previous message skipped to the first message": "skip previous message" was split into "skip" (next) and "previous message"; skip + any direction word is one command
   const dirWord = {forward: 1, forwards: 1, ahead: 1, next: 1, backward: -1, backwards: -1, back: -1, previous: -1, last: -1}[rest[1]];
   if (rest[0] === 'skip' && dirWord && rest.length <= 3) { const c = rest.length === 3 ? NUMBERS[rest[2]] : 1; if (c) return {dir: dirWord, whole, count: c}; }

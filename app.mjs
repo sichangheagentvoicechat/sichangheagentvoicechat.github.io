@@ -1,21 +1,21 @@
 /** Wires the model, Zulip events, voice service, player, voice control and DOM: feed, playback order, read state, switching, sending. Behavior is described in `design.md`. */
-import {createLog} from './log.mjs?v=1982d20342';
-import {createLatency} from './latency.mjs?v=1982d20342';
-import {createZulip, createEvents} from './zulip.mjs?v=1982d20342';
-import {createVoice} from './voice.mjs?v=1982d20342';
-import {createPlayer} from './player.mjs?v=1982d20342';
-import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=1982d20342';
-import {createModel, parsed, itemsOf} from './model.mjs?v=1982d20342';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=1982d20342';
-import {store} from './store.mjs?v=1982d20342';
-import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=1982d20342';
-import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=1982d20342';
-import {createReads} from './reads.mjs?v=1982d20342';
-import {createVoiceControl} from './voicecontrol.mjs?v=1982d20342';
-import {createDictation} from './dictation.mjs?v=1982d20342';
-import {rankTopics, similarText} from './grammar.mjs?v=1982d20342';
+import {createLog} from './log.mjs?v=f004732b18';
+import {createLatency} from './latency.mjs?v=f004732b18';
+import {createZulip, createEvents} from './zulip.mjs?v=f004732b18';
+import {createVoice} from './voice.mjs?v=f004732b18';
+import {createPlayer} from './player.mjs?v=f004732b18';
+import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=f004732b18';
+import {createModel, parsed, itemsOf} from './model.mjs?v=f004732b18';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=f004732b18';
+import {store} from './store.mjs?v=f004732b18';
+import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=f004732b18';
+import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=f004732b18';
+import {createReads} from './reads.mjs?v=f004732b18';
+import {createVoiceControl} from './voicecontrol.mjs?v=f004732b18';
+import {createDictation} from './dictation.mjs?v=f004732b18';
+import {rankTopics, similarText} from './grammar.mjs?v=f004732b18';
 
-const BUILD = 'v2.0-1982d20342';
+const BUILD = 'v2.0-f004732b18';
 const log = createLog();
 const lat = createLatency(log);
 addEventListener('error', e => log('err', `${e.message} @${e.filename?.split('/').pop()}:${e.lineno}`));
@@ -696,7 +696,18 @@ draftEl.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey 
 draftEl.addEventListener('focus', () => setTimeout(() => { if (atBottom()) feed.scrollTop = feed.scrollHeight; }, 300));
 
 /** Navigation by voice: chunk or whole-message steps, or replay of the current chunk (dir 0). */
-function navigate({dir, whole, count, restart}) {
+/** Plays from the first unread message of the open agent (button and voice). */
+function playFirstUnread() {
+  player.unlock();
+  const m = model.unreadAgentMessages(current).find(x => itemsOf(x).length);
+  if (!m) { toast('No unread messages here'); return; }
+  clearTimeout(burst?.timer); burst = null;
+  log('read', `skip to first unread message ${m.id}`);
+  playFrom(m, 0);
+}
+
+function navigate({dir, whole, count, restart, unread}) {
+  if (unread) { log('vc', 'navigate first unread'); playFirstUnread(); return; }
   log('vc', `navigate ${restart ? 'restart message' : dir > 0 ? 'next' : dir < 0 ? 'previous' : 'again'}${whole ? ' message' : ''} x${count}`);
   player.unlock();
   if (restart) {   // the message being read (or last heard) from its first sentence
@@ -892,6 +903,7 @@ for (const [id, direction] of [['prev', -1], ['next', 1]]) {
   for (const type of ['pointerup', 'pointerleave', 'pointercancel']) button.addEventListener(type, () => clearTimeout(timer));
   button.onclick = () => { if (!held) jump(direction); held = false; };
 }
+$('first-unread').onclick = playFirstUnread;
 $('slower').onclick = () => setRate(rate - 0.1);
 $('faster').onclick = () => setRate(rate + 0.1);
 $('auto').onclick = () => setAutoplay(!autoplay);
