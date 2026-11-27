@@ -1,21 +1,21 @@
 /** Wires the model, Zulip events, voice service, player, voice control and DOM: feed, playback order, read state, switching, sending. Behavior is described in `design.md`. */
-import {createLog} from './log.mjs?v=b1e5e26fba';
-import {createLatency} from './latency.mjs?v=b1e5e26fba';
-import {createZulip, createEvents} from './zulip.mjs?v=b1e5e26fba';
-import {createVoice} from './voice.mjs?v=b1e5e26fba';
-import {createPlayer} from './player.mjs?v=b1e5e26fba';
-import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=b1e5e26fba';
-import {createModel, parsed, itemsOf} from './model.mjs?v=b1e5e26fba';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=b1e5e26fba';
-import {store} from './store.mjs?v=b1e5e26fba';
-import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=b1e5e26fba';
-import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=b1e5e26fba';
-import {createReads} from './reads.mjs?v=b1e5e26fba';
-import {createVoiceControl} from './voicecontrol.mjs?v=b1e5e26fba';
-import {createDictation} from './dictation.mjs?v=b1e5e26fba';
-import {rankTopics, similarText} from './grammar.mjs?v=b1e5e26fba';
+import {createLog} from './log.mjs?v=2f593665dd';
+import {createLatency} from './latency.mjs?v=2f593665dd';
+import {createZulip, createEvents} from './zulip.mjs?v=2f593665dd';
+import {createVoice} from './voice.mjs?v=2f593665dd';
+import {createPlayer} from './player.mjs?v=2f593665dd';
+import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=2f593665dd';
+import {createModel, parsed, itemsOf} from './model.mjs?v=2f593665dd';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=2f593665dd';
+import {store} from './store.mjs?v=2f593665dd';
+import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=2f593665dd';
+import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=2f593665dd';
+import {createReads} from './reads.mjs?v=2f593665dd';
+import {createVoiceControl} from './voicecontrol.mjs?v=2f593665dd';
+import {createDictation} from './dictation.mjs?v=2f593665dd';
+import {rankTopics, similarText} from './grammar.mjs?v=2f593665dd';
 
-const BUILD = 'v2.0-b1e5e26fba';
+const BUILD = 'v2.0-2f593665dd';
 const log = createLog();
 const lat = createLatency(log);
 addEventListener('error', e => log('err', `${e.message} @${e.filename?.split('/').pop()}:${e.lineno}`));
@@ -157,6 +157,7 @@ function highlight() {
 }
 /** The "jump to playing" pill shows exactly when the playing chunk is outside the visible feed, recomputed on every chunk change, scroll and layout change. */
 function updateJump() {
+  renderFirstUnreadButton();
   const n = nowMsgId === null ? null : feed.querySelector('.s.now');
   if (!n) { $('jump').hidden = true; return; }
   const box = feed.getBoundingClientRect(), r = n.getBoundingClientRect();
@@ -246,12 +247,13 @@ async function loadTopics(unreadByTopic) {
 
 async function onInit(state, isResync) {
   if (cfg.relayStreamId) voice.backfill();
-  const unread = new Map();
+  const unread = new Map(), idsByTopic = new Map();
   await loadChannels();
-  for (const s of state.unread_msgs?.streams ?? []) if (s.stream_id === cfg.streamId || isOurChannel(s.stream_id)) unread.set(keyFor(s.stream_id, s.topic), s.unread_message_ids.length);
+  for (const s of state.unread_msgs?.streams ?? []) if (s.stream_id === cfg.streamId || isOurChannel(s.stream_id)) { unread.set(keyFor(s.stream_id, s.topic), s.unread_message_ids.length); idsByTopic.set(keyFor(s.stream_id, s.topic), s.unread_message_ids); }
   { const unreadIds = new Set(); for (const st of state.unread_msgs?.streams ?? []) for (const id of st.unread_message_ids ?? []) unreadIds.add(id);
     const changed = model.reconcileUnread(unreadIds, m => model.isAgent(m) && !reads.has(m.id));   // cached copies the server no longer lists as unread were read elsewhere
     if (changed.length) log('read', `${changed.length} cached messages were already read on the server`); }
+  model.setUnreadIds(idsByTopic);
   reads.flush();   // our own unconfirmed reads go out first
   const topicsLoaded = loadTopics(unread);
   if (!current) { await topicsLoaded; current = model.topics()[0]?.name ?? null; }
@@ -298,7 +300,7 @@ function onEvent(event) {
       model.markRead(event.messages);
       reads.forget(event.messages);
       for (const id of event.messages) player.removeFuture(id);
-    } else { model.markUnread(event.messages); }
+    } else { model.markUnread(event.messages, Object.fromEntries(Object.entries(event.message_details ?? {}).filter(([, d]) => d.type === 'stream').map(([id, d]) => [id, keyFor(d.stream_id, d.topic)]))); }
     renderUnread();
   }
 }
@@ -586,7 +588,8 @@ function switchNextUnread() {
   switchTopic(next.name);
   return true;
 }
-function renderNextButton() { const n = model.topics().filter(t => t.name !== current && t.unread > 0).length; $('next-unread').hidden = !n; $('next-unread-count').textContent = n; }
+function renderFirstUnreadButton() { $('first-unread').hidden = !current || !model.unreadAgentMessages(current).length; }
+function renderNextButton() { renderFirstUnreadButton(); const n = model.topics().filter(t => t.name !== current && t.unread > 0).length; $('next-unread').hidden = !n; $('next-unread-count').textContent = n; }
 function switchBack() {
   if (!previousTopic || previousTopic === current) { toast('No previous agent'); return false; }
   switchTopic(previousTopic);
@@ -696,18 +699,22 @@ draftEl.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey 
 draftEl.addEventListener('focus', () => setTimeout(() => { if (atBottom()) feed.scrollTop = feed.scrollHeight; }, 300));
 
 /** Navigation by voice: chunk or whole-message steps, or replay of the current chunk (dir 0). */
-/** Plays from the first unread message of the open agent (button and voice). */
-function playFirstUnread() {
-  player.unlock();
-  const m = model.unreadAgentMessages(current).find(x => itemsOf(x).length);
-  if (!m) { toast('No unread messages here'); return; }
-  clearTimeout(burst?.timer); burst = null;
-  log('read', `skip to first unread message ${m.id}`);
-  playFrom(m, 0);
+/** Scrolls the feed to the first unread message of the open agent (button and voice). Touches no playback state and marks nothing read. */
+function showFirstUnread() {
+  const m = model.unreadAgentMessages(current).find(x => itemsOf(x).length) ?? model.unreadAgentMessages(current)[0];
+  const node = m && els.get(m.id);
+  if (!node) { toast('No unread messages here'); return; }
+  log('read', `show first unread message ${m.id}`);
+  pinUntilMs = 0; cancelAnimationFrame(pinTimer);   // the bottom pin must not undo the jump
+  setFollow(false);   // like a manual scroll: the playing chunk does not pull the view back; the jump pill offers the way back
+  const box = feed.getBoundingClientRect(), r = node.getBoundingClientRect();
+  feed.scrollTo({top: feed.scrollTop + r.top - box.top - box.height * 0.1, behavior: 'smooth'});
+  node.classList.remove('flash-unread'); void node.offsetWidth; node.classList.add('flash-unread');
+  setTimeout(() => node.classList.remove('flash-unread'), 1600);
 }
 
 function navigate({dir, whole, count, restart, unread}) {
-  if (unread) { log('vc', 'navigate first unread'); playFirstUnread(); return; }
+  if (unread) { log('vc', 'navigate first unread'); showFirstUnread(); return; }
   log('vc', `navigate ${restart ? 'restart message' : dir > 0 ? 'next' : dir < 0 ? 'previous' : 'again'}${whole ? ' message' : ''} x${count}`);
   player.unlock();
   if (restart) {   // the message being read (or last heard) from its first sentence
@@ -903,7 +910,7 @@ for (const [id, direction] of [['prev', -1], ['next', 1]]) {
   for (const type of ['pointerup', 'pointerleave', 'pointercancel']) button.addEventListener(type, () => clearTimeout(timer));
   button.onclick = () => { if (!held) jump(direction); held = false; };
 }
-$('first-unread').onclick = playFirstUnread;
+$('first-unread').onclick = showFirstUnread;
 $('slower').onclick = () => setRate(rate - 0.1);
 $('faster').onclick = () => setRate(rate + 0.1);
 $('auto').onclick = () => setAutoplay(!autoplay);
