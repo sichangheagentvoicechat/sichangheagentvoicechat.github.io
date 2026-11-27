@@ -1,6 +1,6 @@
 /** The stored Zulip account: login from a pasted zuliprc, discovery of channel and agent ids, muting the relay channel. */
-import {createZulip} from './zulip.mjs?v=2f593665dd';
-import {$} from './chrome.mjs?v=2f593665dd';
+import {createZulip} from './zulip.mjs?v=69ddc2a7ed';
+import {$} from './chrome.mjs?v=69ddc2a7ed';
 
 export const ACCOUNT_KEY = 'zulip-voice-account';
 
