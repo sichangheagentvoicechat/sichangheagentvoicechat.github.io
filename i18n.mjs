@@ -1,5 +1,5 @@
 /** Interface language: a small message catalog (en, zh), `t(key, params)`, and DOM helpers. The voice keywords and command grammar are English in both languages. */
-import {store} from './store.mjs?v=ac6a0023e3';
+import {store} from './store.mjs?v=0052e79781';
 
 export const LANG_KEY = 'voice2-lang';
 const LANGS = ['en', 'zh'];
