@@ -1,7 +1,7 @@
 /** The stored Zulip account: login from a pasted zuliprc, discovery of channel and agent ids, muting the relay channel. */
-import {t} from './i18n.mjs?v=440b7593f5';
-import {createZulip} from './zulip.mjs?v=440b7593f5';
-import {$} from './chrome.mjs?v=440b7593f5';
+import {t} from './i18n.mjs?v=ac6a0023e3';
+import {createZulip} from './zulip.mjs?v=ac6a0023e3';
+import {$} from './chrome.mjs?v=ac6a0023e3';
 
 export const ACCOUNT_KEY = 'zulip-voice-account';
 
@@ -21,7 +21,7 @@ export async function login(store, log) {
       }
       const fail = text => { $('login-error').textContent = text; };
       if (!values.site || !values.email || !values.key) return fail(t('login.need'));
-      const site = new URL(values.site).origin;
+      let site; try { site = new URL(values.site).origin; } catch { return fail(t('login.badsite')); }
       const zulip = createZulip({site, email: values.email, key: values.key}, log);
       const me = await zulip.call('GET', 'users/me');
       if (!me.ok) return fail(me.error);

@@ -3,14 +3,14 @@
  * end word sends, cancel word discards. Owns the microphone (recorder), the on-device keyword spotter and the switch question.
  * Everything it does to playback, the feed or the composer goes through `ctx`.
  */
-import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=440b7593f5';
-import {createKeywordSpotter} from './kws.mjs?v=440b7593f5';
-import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT, DOMAIN_PROMPT_ZH} from './text.mjs?v=440b7593f5';
-import {t as tr, getLang} from './i18n.mjs?v=440b7593f5';
-import {itemsOf} from './model.mjs?v=440b7593f5';
-import {$, toast} from './chrome.mjs?v=440b7593f5';
+import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=ac6a0023e3';
+import {createKeywordSpotter} from './kws.mjs?v=ac6a0023e3';
+import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT, DOMAIN_PROMPT_ZH} from './text.mjs?v=ac6a0023e3';
+import {t as tr, getLang} from './i18n.mjs?v=ac6a0023e3';
+import {itemsOf} from './model.mjs?v=ac6a0023e3';
+import {$, toast} from './chrome.mjs?v=ac6a0023e3';
 import {normalize, rankTopics, clearWinner, commandPhrases, afterStartWord as afterStart, stripResumePhrase as stripResume, isCommandWord as isCmd, isCancel, hasCancelWord as hasCancel, endsWithCancel as endsCancel,
-  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, SEND_LOG_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=440b7593f5';
+  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, SEND_LOG_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=ac6a0023e3';
 
 const RESUME_SILENCE_MS = 1000;   // plus the recorder's 0.7 s end-of-utterance silence: about 1.7 s of quiet after the phrase
 const END_WORD_CHECK_MS = 450, END_WORD_QUIET_MS = 300;   // a local end word sends only if the mic was quiet for the last 300 ms of a 450 ms look-ahead
