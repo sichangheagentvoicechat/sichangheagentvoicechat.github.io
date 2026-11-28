@@ -1,22 +1,22 @@
 /** Wires the model, Zulip events, voice service, player, voice control and DOM: feed, playback order, read state, switching, sending. Behavior is described in `design.md`. */
-import {createLog} from './log.mjs?v=5615c095f2';
-import {createLatency} from './latency.mjs?v=5615c095f2';
-import {createZulip, createEvents} from './zulip.mjs?v=5615c095f2';
-import {createVoice} from './voice.mjs?v=5615c095f2';
-import {createPlayer} from './player.mjs?v=5615c095f2';
-import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=5615c095f2';
-import {createModel, parsed, itemsOf} from './model.mjs?v=5615c095f2';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=5615c095f2';
-import {store} from './store.mjs?v=5615c095f2';
-import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=5615c095f2';
-import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=5615c095f2';
-import {createReads} from './reads.mjs?v=5615c095f2';
-import {createVoiceControl} from './voicecontrol.mjs?v=5615c095f2';
-import {createDictation} from './dictation.mjs?v=5615c095f2';
-import {rankTopics, similarText} from './grammar.mjs?v=5615c095f2';
-import {t, applyStatic, onLangChange, setLang, getLang} from './i18n.mjs?v=5615c095f2';
+import {createLog} from './log.mjs?v=440b7593f5';
+import {createLatency} from './latency.mjs?v=440b7593f5';
+import {createZulip, createEvents} from './zulip.mjs?v=440b7593f5';
+import {createVoice} from './voice.mjs?v=440b7593f5';
+import {createPlayer} from './player.mjs?v=440b7593f5';
+import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=440b7593f5';
+import {createModel, parsed, itemsOf} from './model.mjs?v=440b7593f5';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=440b7593f5';
+import {store} from './store.mjs?v=440b7593f5';
+import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=440b7593f5';
+import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=440b7593f5';
+import {createReads} from './reads.mjs?v=440b7593f5';
+import {createVoiceControl} from './voicecontrol.mjs?v=440b7593f5';
+import {createDictation} from './dictation.mjs?v=440b7593f5';
+import {rankTopics, similarText} from './grammar.mjs?v=440b7593f5';
+import {t, applyStatic, onLangChange, setLang, getLang} from './i18n.mjs?v=440b7593f5';
 
-const BUILD = 'v2.0-5615c095f2';
+const BUILD = 'v2.0-440b7593f5';
 applyStatic();   // the interface language (saved setting, else the browser's) before anything is shown
 const log = createLog();
 const lat = createLatency(log);

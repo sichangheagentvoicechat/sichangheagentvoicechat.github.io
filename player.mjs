@@ -6,7 +6,7 @@
  *
  * Status: `idle` (nothing queued), `loading` (waiting for audio data), `playing`, `paused`, `blocked` (needs a tap), `error` (will retry).
  */
-import {speechLang} from './i18n.mjs?v=5615c095f2';
+import {speechLang} from './i18n.mjs?v=440b7593f5';
 const SILENCE = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
 const AHEAD = 3;
 const URL_FRESH_MS = 25000;

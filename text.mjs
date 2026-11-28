@@ -27,16 +27,17 @@ export function splitFooters(lines) {
 }
 
 /** Zulip uploads linked in `content` as `[name](/user_uploads/...)`; returns the text without them and the list. */
-export function extractAttachments(content) {
+export const ATT_MARK = /^\uE000(\d+)\uE000$/;   // an attachment's place in the text: its own line
+export function extractAttachments(content, inline = false) {
   const attachments = [];
-  const text = content.replace(/!?\[([^\]]*)\]\((\/user_uploads\/[^)\s]+)\)/g, (_, name, uri) => { attachments.push({name: name || decodeURIComponent(uri.split('/').pop()), uri}); return ''; });
+  const text = content.replace(/!?\[([^\]]*)\]\((\/user_uploads\/[^)\s]+)\)/g, (_, name, uri) => { attachments.push({name: name || decodeURIComponent(uri.split('/').pop()), uri}); return inline ? `\n\uE000${attachments.length - 1}\uE000\n` : ''; });
   return {text, attachments};
 }
 
 /** Splits an agent message into `{title, body, switchTo}`: the `[task] title` first line and `[switch: TASK]` lines are not body text. */
 export function parseAgentMessage(content) {
   let switchTo = null;
-  const extracted = extractAttachments(content);
+  const extracted = extractAttachments(content, true);
   content = extracted.text;
   const lines = content.split('\n').filter(line => {
     const match = line.match(/^\[switch: (.+?)\]$/);
@@ -63,6 +64,7 @@ export function parseBlocks(body) {
     table = [];
   };
   for (const line of body.split('\n')) {
+    if (!code && ATT_MARK.test(line.trim())) { flushTable(); flush(); blocks.push({kind: 'att', n: +line.trim().slice(1, -1), text: ''}); continue; }
     if (!code && /^\s*\|.*\|\s*$/.test(line)) { flush(); table.push(line); continue; }
     flushTable();
     if (/^\s*```/.test(line)) {
@@ -122,7 +124,7 @@ export function messageChunks(body) {
   const chunks = [];
   const blocks = parseBlocks(body);
   blocks.forEach((block, b) => {
-    if (block.kind === 'code') return;   // not read aloud
+    if (block.kind === 'code' || block.kind === 'att') return;   // not read aloud
     if (block.kind === 'table') {   // "Table start.", then per row "Row N." and every cell as its own chunk (its own audio clip: long pauses between cells)
       chunks.push({block: b, text: 'Table start.', r: -1, c: -1});
       [block.head, ...block.rows].forEach((row, r) => {

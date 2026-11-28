@@ -1,6 +1,6 @@
 /** Zulip REST client and a self-healing event-queue loop. All failures are returned, never thrown. */
 
-import {t} from './i18n.mjs?v=5615c095f2';
+import {t} from './i18n.mjs?v=440b7593f5';
 const sleepMs = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 /** `call` resolves to `{ok: true, data}` or `{ok: false, kind: 'network'|'timeout'|'aborted'|'http', status, code, error, uncertain}`. */
