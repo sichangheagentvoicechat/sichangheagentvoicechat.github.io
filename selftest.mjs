@@ -3,9 +3,9 @@
  * Every await goes through `w(label, promise, ms)`, so a hang is reported with what it was waiting for.
  * A 100 ms timer measures main-thread stalls; they are listed in the report.
  */
-import {createZulip, createEvents} from './zulip.mjs?v=73991c76cf';
-import {createVoice} from './voice.mjs?v=73991c76cf';
-import {createRecorder} from './recorder.mjs?v=73991c76cf';
+import {createZulip, createEvents} from './zulip.mjs?v=5615c095f2';
+import {createVoice} from './voice.mjs?v=5615c095f2';
+import {createRecorder} from './recorder.mjs?v=5615c095f2';
 
 const cfg = JSON.parse(localStorage.getItem('zulip-voice-account') || 'null');
 const out = [];

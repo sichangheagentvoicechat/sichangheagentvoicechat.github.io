@@ -3,7 +3,7 @@
  * Loaded lazily when voice control turns on; assets live in the hashed `kws-<hash>/` directory written by `build.mjs`.
  * The detector hears the microphone directly, so a start word pauses playback with no upload and no server round trip.
  */
-import {parseBpe, encodeBpe} from './bpe.mjs?v=73991c76cf';
+import {parseBpe, encodeBpe} from './bpe.mjs?v=5615c095f2';
 const KWS_BASE = './kws-10c64e6f7c/';   // build.mjs rewrites this to the hashed asset directory
 const KEYWORDS = '▁AT T ENT ION @ATTENTION\n▁TO MA T O @TOMATO\n▁PO T AT O #0.15 :2.0 @POTATO\n▁TO R N AD O @TORNADO';   // POTATO: the command word, TORNADO: the cancel word (🧑 picked 2026-11-23)
 const THRESHOLD = 0.25;   // tuned in research-kws: 41/42 clips, no false hit in 35 minutes of agent speech
