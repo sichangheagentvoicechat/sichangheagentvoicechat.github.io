@@ -1,6 +1,6 @@
 /** Client of the voice service (`service/protocol.md`): STT, TTS, ping through the relay channel. Results arrive via `onMessage`. */
 
-import {t} from './i18n.mjs?v=0052e79781';
+import {t} from './i18n.mjs?v=6fdcba70f6';
 const LOG_PART_CHARS = 9000;
 const URL_TTL_MS = 50000;
 const PREPARED_TTL_MS = 6 * 3600000;

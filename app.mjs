@@ -1,22 +1,22 @@
 /** Wires the model, Zulip events, voice service, player, voice control and DOM: feed, playback order, read state, switching, sending. Behavior is described in `design.md`. */
-import {createLog} from './log.mjs?v=0052e79781';
-import {createLatency} from './latency.mjs?v=0052e79781';
-import {createZulip, createEvents} from './zulip.mjs?v=0052e79781';
-import {createVoice} from './voice.mjs?v=0052e79781';
-import {createPlayer} from './player.mjs?v=0052e79781';
-import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=0052e79781';
-import {createModel, parsed, itemsOf} from './model.mjs?v=0052e79781';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=0052e79781';
-import {store} from './store.mjs?v=0052e79781';
-import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=0052e79781';
-import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=0052e79781';
-import {createReads} from './reads.mjs?v=0052e79781';
-import {createVoiceControl} from './voicecontrol.mjs?v=0052e79781';
-import {createDictation} from './dictation.mjs?v=0052e79781';
-import {rankTopics, similarText} from './grammar.mjs?v=0052e79781';
-import {t, applyStatic, onLangChange, setLang, getLang} from './i18n.mjs?v=0052e79781';
+import {createLog} from './log.mjs?v=6fdcba70f6';
+import {createLatency} from './latency.mjs?v=6fdcba70f6';
+import {createZulip, createEvents} from './zulip.mjs?v=6fdcba70f6';
+import {createVoice} from './voice.mjs?v=6fdcba70f6';
+import {createPlayer} from './player.mjs?v=6fdcba70f6';
+import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=6fdcba70f6';
+import {createModel, parsed, itemsOf} from './model.mjs?v=6fdcba70f6';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=6fdcba70f6';
+import {store} from './store.mjs?v=6fdcba70f6';
+import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=6fdcba70f6';
+import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=6fdcba70f6';
+import {createReads} from './reads.mjs?v=6fdcba70f6';
+import {createVoiceControl} from './voicecontrol.mjs?v=6fdcba70f6';
+import {createDictation} from './dictation.mjs?v=6fdcba70f6';
+import {rankTopics, similarText} from './grammar.mjs?v=6fdcba70f6';
+import {t, applyStatic, onLangChange, setLang, getLang} from './i18n.mjs?v=6fdcba70f6';
 
-const BUILD = 'v2.0-0052e79781';
+const BUILD = 'v2.0-6fdcba70f6';
 applyStatic();   // the interface language (saved setting, else the browser's) before anything is shown
 // the sign-in language switch works before anything else is loaded
 const syncLangBtns = () => { for (const b of document.querySelectorAll('.langbtn')) b.setAttribute('aria-pressed', String(b.dataset.setlang === getLang())); };

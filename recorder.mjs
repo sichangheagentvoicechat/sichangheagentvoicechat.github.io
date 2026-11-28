@@ -3,7 +3,7 @@
  * Raw PCM through an AudioWorklet avoids MediaRecorder, whose chunks are not independently decodable and which is flaky on iOS.
  * Clips without speech are dropped.
  */
-import {t} from './i18n.mjs?v=0052e79781';
+import {t} from './i18n.mjs?v=6fdcba70f6';
 const TARGET_HZ = 16000;
 const MAX_CLIP_S = 10;
 const PAUSE_MS = 700;
