@@ -1,21 +1,21 @@
 /** Wires the model, Zulip events, voice service, player, voice control and DOM: feed, playback order, read state, switching, sending. Behavior is described in `design.md`. */
-import {createLog} from './log.mjs?v=ee617bba2b';
-import {createLatency} from './latency.mjs?v=ee617bba2b';
-import {createZulip, createEvents} from './zulip.mjs?v=ee617bba2b';
-import {createVoice} from './voice.mjs?v=ee617bba2b';
-import {createPlayer} from './player.mjs?v=ee617bba2b';
-import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=ee617bba2b';
-import {createModel, parsed, itemsOf} from './model.mjs?v=ee617bba2b';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=ee617bba2b';
-import {store} from './store.mjs?v=ee617bba2b';
-import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=ee617bba2b';
-import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=ee617bba2b';
-import {createReads} from './reads.mjs?v=ee617bba2b';
-import {createVoiceControl} from './voicecontrol.mjs?v=ee617bba2b';
-import {createDictation} from './dictation.mjs?v=ee617bba2b';
-import {rankTopics, similarText} from './grammar.mjs?v=ee617bba2b';
+import {createLog} from './log.mjs?v=73991c76cf';
+import {createLatency} from './latency.mjs?v=73991c76cf';
+import {createZulip, createEvents} from './zulip.mjs?v=73991c76cf';
+import {createVoice} from './voice.mjs?v=73991c76cf';
+import {createPlayer} from './player.mjs?v=73991c76cf';
+import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=73991c76cf';
+import {createModel, parsed, itemsOf} from './model.mjs?v=73991c76cf';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=73991c76cf';
+import {store} from './store.mjs?v=73991c76cf';
+import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=73991c76cf';
+import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=73991c76cf';
+import {createReads} from './reads.mjs?v=73991c76cf';
+import {createVoiceControl} from './voicecontrol.mjs?v=73991c76cf';
+import {createDictation} from './dictation.mjs?v=73991c76cf';
+import {rankTopics, similarText} from './grammar.mjs?v=73991c76cf';
 
-const BUILD = 'v2.0-ee617bba2b';
+const BUILD = 'v2.0-73991c76cf';
 const log = createLog();
 const lat = createLatency(log);
 addEventListener('error', e => log('err', `${e.message} @${e.filename?.split('/').pop()}:${e.lineno}`));
@@ -29,7 +29,8 @@ $('app').hidden = false;
 cfg = await completeAccount(cfg, zulip, store);
 
 const model = createModel(cfg);
-const voice = createVoice({zulip, cfg, log});
+let lastDelayToastMs = 0;
+const voice = createVoice({zulip, cfg, log, onDelay: ms => { if (Date.now() - lastDelayToastMs > 8000) { lastDelayToastMs = Date.now(); toast(`Zulip is rate limiting: sending is delayed (${Math.ceil(ms / 1000)}s). Nothing is lost.`); } }});
 let current = store.get('voice2-topic', null);
 let autoplay = store.get('voice2-autoplay', true);
 let rate = store.get('voice2-rate', 1);

@@ -1,5 +1,5 @@
 /** Pure voice-command grammar: word matching, agent-name ranking, navigation phrases, start/end/cancel words. No DOM, no state. */
-import {soundsLikeWord, stripTrailingControl, leadingControlCount} from './text.mjs?v=ee617bba2b';
+import {soundsLikeWord, stripTrailingControl, leadingControlCount} from './text.mjs?v=73991c76cf';
 
 export const RESUME_DEFAULT = 'tomato';   // the human's pick from the end-word study: 99% on-device detection, 0 false accepts in 4.9 h of speech
 export const START_DEFAULT = 'attention';   // chosen from the trigger-word study: long, no clipped final consonant, 98-100% detection, 0 false accepts
@@ -63,6 +63,7 @@ const START_ALIASES = {attention: ['attention', 'attension', 'attentions', 'atte
 export function afterStartWord(text, word) {
   const accepted = new Set([word, ...(START_ALIASES[word] ?? [])]);
   const words = text.trim().split(/\s+/).filter(Boolean);
+  { const m = /^([A-Za-z'.,!?;:\-\u3000-\u303f\uff00-\uffef]*)([\u3400-\u9fff].*)$/su.exec(words[0] ?? ''); if (m && m[1]) words.splice(0, 1, m[1], m[2]); }   // "Attention，这是…": a Chinese sentence follows the start word without a space
   if (word === 'attention') { const c = leadingControlCount('attention', words); if (c) return words.slice(c).join(' '); }
   const isStart = w => { const n = normalize(w); return n && (accepted.has(n) || editDistance(n, word) <= Math.floor(word.length / 4)); };
   if (!words.length || !isStart(words[0])) return null;
