@@ -1,21 +1,21 @@
 /** Wires the model, Zulip events, voice service, player, voice control and DOM: feed, playback order, read state, switching, sending. Behavior is described in `design.md`. */
-import {createLog} from './log.mjs?v=44f4386be7';
-import {createLatency} from './latency.mjs?v=44f4386be7';
-import {createZulip, createEvents} from './zulip.mjs?v=44f4386be7';
-import {createVoice} from './voice.mjs?v=44f4386be7';
-import {createPlayer} from './player.mjs?v=44f4386be7';
-import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=44f4386be7';
-import {createModel, parsed, itemsOf} from './model.mjs?v=44f4386be7';
-import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=44f4386be7';
-import {store} from './store.mjs?v=44f4386be7';
-import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=44f4386be7';
-import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=44f4386be7';
-import {createReads} from './reads.mjs?v=44f4386be7';
-import {createVoiceControl} from './voicecontrol.mjs?v=44f4386be7';
-import {createDictation} from './dictation.mjs?v=44f4386be7';
-import {rankTopics, similarText} from './grammar.mjs?v=44f4386be7';
+import {createLog} from './log.mjs?v=ee617bba2b';
+import {createLatency} from './latency.mjs?v=ee617bba2b';
+import {createZulip, createEvents} from './zulip.mjs?v=ee617bba2b';
+import {createVoice} from './voice.mjs?v=ee617bba2b';
+import {createPlayer} from './player.mjs?v=ee617bba2b';
+import {EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=ee617bba2b';
+import {createModel, parsed, itemsOf} from './model.mjs?v=ee617bba2b';
+import {hideAllAttachments, agentEl, mineEl, setUnread, topicRow, ago} from './view.mjs?v=ee617bba2b';
+import {store} from './store.mjs?v=ee617bba2b';
+import {ACCOUNT_KEY, login, completeAccount, ensureRelayMuted} from './account.mjs?v=ee617bba2b';
+import {$, toast, showBanner, hideBanner, bannerKind, flash, drawLevel} from './chrome.mjs?v=ee617bba2b';
+import {createReads} from './reads.mjs?v=ee617bba2b';
+import {createVoiceControl} from './voicecontrol.mjs?v=ee617bba2b';
+import {createDictation} from './dictation.mjs?v=ee617bba2b';
+import {rankTopics, similarText} from './grammar.mjs?v=ee617bba2b';
 
-const BUILD = 'v2.0-44f4386be7';
+const BUILD = 'v2.0-ee617bba2b';
 const log = createLog();
 const lat = createLatency(log);
 addEventListener('error', e => log('err', `${e.message} @${e.filename?.split('/').pop()}:${e.lineno}`));
@@ -427,8 +427,10 @@ let pausedItem = null;
 // 🧑 "I need a way to pause the. Play, so I can think": a spoken pause holds until "resume"/"play" or until something plays again; ending a voice session no longer undoes it.
 let userHold = false;
 function holdPlayback(on) { userHold = on; log('app', on ? 'playback held by pause' : 'playback hold released'); }
+const PLAY_QUIET_MS = 800;
 function resumeAfterPause() {
   if (userHold) { log('app', 'held by pause: not resuming'); return; }
+  if (vctl.sessionOpen() || vctl.userSpeaking() || vctl.micQuietMs() < PLAY_QUIET_MS) { clearTimeout(resumeAfterPause.t); resumeAfterPause.t = setTimeout(resumeAfterPause, 250); return; }   // 🧑 playback began over the human's speech: it starts only after the mic has been quiet
   { const wait = vctl.soundLeftMs?.() ?? 0; if (wait > 0 && wait < 3000) { clearTimeout(resumeAfterPause.t); resumeAfterPause.t = setTimeout(resumeAfterPause, wait + 60); return; } }   // let a chime finish first
   player.unlock(); setFollow(true); if (nowMsgId !== null) scrollToNow();
   const st = player.position().status;
@@ -446,6 +448,7 @@ function resumeAfterPause() {
 function maybeAutoplay() {
   { const wait = vctl.soundLeftMs?.() ?? 0; if (wait > 0 && wait < 3000) { clearTimeout(maybeAutoplay.t); maybeAutoplay.t = setTimeout(maybeAutoplay, wait + 60); return; } }   // a chime (e.g. cancel) is still playing: reading starts after it, never over it
   if (replacementWait) return;
+  if (autoplay && current && player.position().status === 'idle' && !vctl.userSpeaking() && vctl.micQuietMs() < PLAY_QUIET_MS) { clearTimeout(maybeAutoplay.t); maybeAutoplay.t = setTimeout(maybeAutoplay, 250); return; }
   if (!autoplay || !current || vctl.userSpeaking() || player.position().status !== 'idle') return;   // never start speech while the user speaks
   // Forward only: anything older than the newest read message counts as read and is never played again.
   const newestRead = model.agentMessages(current).filter(m => m.flags?.includes('read')).at(-1);

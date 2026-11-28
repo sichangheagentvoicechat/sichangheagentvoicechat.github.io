@@ -3,15 +3,16 @@
  * end word sends, cancel word discards. Owns the microphone (recorder), the on-device keyword spotter and the switch question.
  * Everything it does to playback, the feed or the composer goes through `ctx`.
  */
-import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=44f4386be7';
-import {createKeywordSpotter} from './kws.mjs?v=44f4386be7';
-import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=44f4386be7';
-import {itemsOf} from './model.mjs?v=44f4386be7';
-import {$, toast} from './chrome.mjs?v=44f4386be7';
+import {createRecorder, EARCON_NOTES, EARCON_NOTE_S} from './recorder.mjs?v=ee617bba2b';
+import {createKeywordSpotter} from './kws.mjs?v=ee617bba2b';
+import {assembleReply, looksLikeClippedEndWord, soundsLike, removeControlWords, DOMAIN_PROMPT} from './text.mjs?v=ee617bba2b';
+import {itemsOf} from './model.mjs?v=ee617bba2b';
+import {$, toast} from './chrome.mjs?v=ee617bba2b';
 import {normalize, rankTopics, clearWinner, commandPhrases, afterStartWord as afterStart, stripResumePhrase as stripResume, isCommandWord as isCmd, isCancel, hasCancelWord as hasCancel, endsWithCancel as endsCancel,
-  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, SEND_LOG_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=44f4386be7';
+  navCommand, choiceAnswer, NEGATIVE_RE, SWITCH_BACK_RE, NEXT_AGENT_RE, SEND_LOG_RE, RESUME_DEFAULT, START_DEFAULT, CMD_DEFAULT, CANCEL_WORD_DEFAULT, LONG_SILENCE_DEFAULT_S} from './grammar.mjs?v=ee617bba2b';
 
 const RESUME_SILENCE_MS = 1000;   // plus the recorder's 0.7 s end-of-utterance silence: about 1.7 s of quiet after the phrase
+const END_WORD_CHECK_MS = 450, END_WORD_QUIET_MS = 300;   // a local end word sends only if the mic was quiet for the last 300 ms of a 450 ms look-ahead
 const FOLLOW_UP_GRACE_MS = 6000;
 const EMPTY_SESSION_MS = 8000;
 const COMMAND_SILENCE_MS = 8000;
@@ -128,7 +129,13 @@ export function createVoiceControl(ctx) {
     } else if (word === 'TOMATO' && vc?.mode === 'command') {
       leaveCommandMode('end word on device');
     } else if (word === 'TOMATO' && vc && normalize(resumePhrase()) === 'tomato') {
-      sendVoiceReplyNow('end word on device');
+      // 🧑 "I was talking, and then your response came": the spotter can hit mid-sentence. A real end word is followed by quiet; if speech goes on, the server transcript decides.
+      const session = vc;
+      setTimeout(() => {
+        if (vc !== session || session.ending) return;
+        if (recorder.quietMs() < END_WORD_QUIET_MS) { log('vc', 'end word on device ignored: speech continues, the transcript decides'); return; }
+        sendVoiceReplyNow('end word on device');
+      }, END_WORD_CHECK_MS);
     }
   }
   function onCommandHit(tag) {
@@ -580,6 +587,7 @@ export function createVoiceControl(ctx) {
     recorder, userSpeaking, announceSwitch, prebuildCommands, cancelWord, commandWord,
     enabled: () => voiceControl,
     sessionOpen: () => !!vc,
+    micQuietMs: () => recorder.quietMs(),
     /** A saved "on" re-arms after reload: try at once, else on the first tap anywhere. */
     start() { if (voiceControl) { $('set-voice').checked = true; setVcState('waiting', 'tap'); setVoiceControl(true); } },
     onGesture() { if (voiceControl && !recorder.active() && !voiceListening) setVoiceControl(true); },
